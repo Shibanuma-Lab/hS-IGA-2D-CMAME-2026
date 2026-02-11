@@ -1,0 +1,21 @@
+[32m[I 260211 11:10:50 fem_data:32][39m Loading FEM node file : /home/lab/hS-IGA-2D-straight-crack/FEM_data/nodeFEMvNone.csv
+[32m[I 260211 11:11:17 fem_data:32][39m Loading FEM node file : /home/lab/hS-IGA-2D-straight-crack/FEM_data/nodeFEMvNone.csv
+[32m[I 260211 11:12:56 fem_data:32][39m Loading FEM node file : /home/lab/hS-IGA-2D-straight-crack/FEM_data/nodeFEMv400.csv
+[32m[I 260211 11:12:56 fem_data:35][39m Loading FEM elem file : /home/lab/hS-IGA-2D-straight-crack/FEM_data/elemFEMv400.dat
+[32m[I 260211 11:12:56 fem_data:38][39m Loading FEM solution   : /home/lab/hS-IGA-2D-straight-crack/FEM_data/disFEMsolutionAllrGLV400step10.mat
+[32m[I 260211 11:15:39 fem_data:32][39m Loading FEM node file : /home/lab/hS-IGA-2D-straight-crack/FEM_data/nodeFEMv400.csv
+[32m[I 260211 11:15:39 fem_data:35][39m Loading FEM elem file : /home/lab/hS-IGA-2D-straight-crack/FEM_data/elemFEMv400.dat
+[32m[I 260211 11:15:39 fem_data:38][39m Loading FEM solution   : /home/lab/hS-IGA-2D-straight-crack/FEM_data/disFEMsolutionAllrGLV400step200.mat
+[32m[I 260211 11:15:40 fem_data:41][39m FEM data loaded — nodes=14656  elems=14222  solution_shape=(201, 14656, 2)
+[32m[I 260211 11:18:36 fem_data:32][39m Loading FEM node file : /home/lab/hS-IGA-2D-straight-crack/FEM_data/nodeFEMv400.csv
+[32m[I 260211 11:18:36 fem_data:35][39m Loading FEM elem file : /home/lab/hS-IGA-2D-straight-crack/FEM_data/elemFEMv400.dat
+[32m[I 260211 11:18:36 fem_data:38][39m Loading FEM solution   : /home/lab/hS-IGA-2D-straight-crack/FEM_data/disFEMsolutionAllrGLV400step200.mat
+[32m[I 260211 11:18:36 fem_data:41][39m FEM data loaded — nodes=14656  elems=14222  solution_shape=(201, 14656, 2)
+[32m[I 260211 11:20:05 fem_data:32][39m Loading FEM node file : /home/lab/hS-IGA-2D-straight-crack/FEM_data/nodeFEMv400.csv
+[32m[I 260211 11:20:05 fem_data:35][39m Loading FEM elem file : /home/lab/hS-IGA-2D-straight-crack/FEM_data/elemFEMv400.dat
+[32m[I 260211 11:20:05 fem_data:38][39m Loading FEM solution   : /home/lab/hS-IGA-2D-straight-crack/FEM_data/disFEMsolutionAllrGLV400step200.mat
+[32m[I 260211 11:20:05 fem_data:41][39m FEM data loaded — nodes=14656  elems=14222  solution_shape=(201, 14656, 2)
+[32m[I 260211 12:02:50 fem_data:32][39m Loading FEM node file : /home/lab/hS-IGA-2D-straight-crack/FEM_data/nodeFEMv400.csv
+[32m[I 260211 12:02:50 fem_data:35][39m Loading FEM elem file : /home/lab/hS-IGA-2D-straight-crack/FEM_data/elemFEMv400.dat
+[32m[I 260211 12:02:50 fem_data:38][39m Loading FEM solution   : /home/lab/hS-IGA-2D-straight-crack/FEM_data/disFEMsolutionAllrGLV400step200.mat
+[32m[I 260211 12:02:50 fem_data:41][39m FEM data loaded — nodes=14656  elems=14222  solution_shape=(201, 14656, 2)
