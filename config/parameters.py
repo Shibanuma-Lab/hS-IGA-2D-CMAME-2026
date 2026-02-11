@@ -5,6 +5,7 @@ Edit the values here to change the simulation configuration.
 """
 
 import numpy as np
+import math
 import core.state as st
 
 
@@ -31,14 +32,14 @@ def load_parameters(rGL_value=2):
 
     # Scale / ratio
     st.rGLlist = rGL_value
-    st.HLlist = 4
+    st.HLlist = math.ceil((18/10)*st.rGLlist)      # Ensure HL >= 1.8 * rGL
     st.lLlist = 15
-    st.aLlist = 5
+    st.aLlist = math.ceil((25/10)*st.rGLlist)      # Ensure aL >= 2.5 * rGL
 
-    # HHT / Newmark (α=0 → Newmark average acceleration)
-    st.HHT_alpha = 0.0
-    st.HHT_beta = 0.25
-    st.HHT_gamma = 0.5
+    # HHT-alpha method (alpha=-0.02 for numerical damping)
+    st.HHT_alpha = -0.02
+    st.HHT_beta = (1.0 - st.HHT_alpha) ** 2 / 4.0     # β = (1-α)²/4
+    st.HHT_gamma = 0.5 - st.HHT_alpha                 # γ = 0.5 - α
 
     # Rayleigh damping
     st.alpha_rayleigh = 0.0

@@ -136,13 +136,13 @@ To change parameters, edit `config/parameters.py` or modify `main.py` directly.
 
 ```python
 if __name__ == "__main__":
-    # 1) パラメータ読み込み（rGL 値はここで変更可能）
+    # 1) Load parameters (rGL value can be changed here)
     load_parameters(rGL_value=1.0)
 
-    # 2) FEM 参照データ読み込み
-    load_fem_data(version=st.v, step_label=st.stepall)
+    # 2) Load FEM reference data
+    load_fem_data(version=st.v, step_label=st.step_label_fem)
 
-    # 3) シミュレーション実行
+    # 3) Run simulation
     execution()
 ```
 

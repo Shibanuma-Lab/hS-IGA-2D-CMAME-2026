@@ -21,3 +21,6 @@ Job*/
 *~
 .DS_Store
 Thumbs.db
+
+# logs
+logs/

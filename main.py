@@ -98,7 +98,7 @@ def execution():
 # ====================================================================
 if __name__ == "__main__":
     # 1) Load parameters (rGL value can be changed here)
-    load_parameters(rGL_value=2)
+    load_parameters(rGL_value=6)
 
     # 2) Load FEM reference data
     load_fem_data(version=st.v, step_label=st.step_label_fem)

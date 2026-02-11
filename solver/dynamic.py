@@ -131,33 +131,41 @@ def solvedynamic():
         st.RFM[fixdof]     = RFMf
 
     else:
-        # ========== generalized-α / HHT ==========
+        # ========== HHT-alpha method ==========
         disinif = np.asarray(st.disini, dtype=float).ravel()[st.freedof]
         Vinif   = np.asarray(st.Vini,   dtype=float).ravel()[st.freedof]
         Ainif   = np.asarray(st.Aini,   dtype=float).ravel()[st.freedof]
 
-        alpha = float(st.HHT_alpha)
+        alphaH = float(st.HHT_alpha)
 
-        mckl = (mm
-                + dt * (1.0 + alpha) * gamma * cc
-                + dt * dt * (1.0 + alpha) * beta * kk)
-        mckr = (-(dt * (1.0 + alpha) * (1.0 - gamma) * cc
-                  + dt * dt * (1.0 + alpha) * (0.5 - beta) * kk) @ np.asarray(st.Aini, dtype=float)
-                - (dt * (1.0 + alpha) * kk) @ np.asarray(st.Vini, dtype=float)
-                - cc @ np.asarray(st.Vini, dtype=float)
-                - kk @ np.asarray(st.disini, dtype=float)
-                + st.force)
+        a1 = gamma * dt
+        a2 = beta * dt * dt
 
-        mcklf = mckl[np.ix_(st.freedof, st.freedof)]
-        mckrf = mckr[st.freedof]
+        # Predictor terms
+        uPred = disinif + dt * Vinif + (0.5 - beta) * dt * dt * Ainif
+        vPred = Vinif + (1.0 - gamma) * dt * Ainif
+
+        # Forces at n+1 and n (for constant load, fn = fnp1)
+        fnp1 = forcef
+        fn   = forcef  # Assuming constant load; store previous step if needed
+
+        # Effective matrix
+        mcklf = mmf + (1.0 + alphaH) * a1 * ccf + (1.0 + alphaH) * a2 * kkf
+
+        # Effective RHS
+        mckrf = ((1.0 + alphaH) * fnp1 - alphaH * fn
+                 + alphaH * (ccf @ Vinif + kkf @ disinif)
+                 - (1.0 + alphaH) * (ccf @ vPred + kkf @ uPred))
 
         print("LinearSolve", datetime.now())
         Af = np.linalg.solve(mcklf, mckrf)
         print("LinearSolve Finish", datetime.now())
 
-        disf = disinif + dt * Vinif + dt * dt * ((0.5 - beta) * Ainif + beta * Af)
-        Vf   = Vinif + dt * ((1.0 - gamma) * Ainif + gamma * Af)
+        # Update displacement and velocity
+        disf = uPred + beta * dt * dt * Af
+        Vf   = vPred + gamma * dt * Af
 
+        # Reaction forces
         RFf  = kkef @ disf
         RFMf = mmef @ Af + ccef @ Vf + kkef @ disf
 
