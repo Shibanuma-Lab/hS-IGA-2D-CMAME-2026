@@ -94,7 +94,7 @@ hS-IGA-2D-straight-crack/
 
 ## Requirements
 
-- **Python** 3.10 or higher (recommended: 3.12)
+- **Python** 3.10 or higher (recommended: 3.10)
 - **Package manager**: `pipenv` (for virtual environment management)
 - **Required packages**: `numpy`, `scipy`
 - **Optional package**: `logzero` (enhanced log formatting; fallback to stdlib logging if not available)
