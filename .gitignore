@@ -9,6 +9,17 @@ __pycache__/
 *.pyc
 *.pyo
 
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.env
+
+# pipenv
+.venv
+Pipfile.lock  # 可选：如果团队使用相同环境可以提交此文件
+
 # Runtime output directories
 results/
 result_*/
@@ -31,3 +42,5 @@ example*
 IMPLEMENTATION*
 QUICK*
 test*
+*GUIDE*
+*SUMMARY*

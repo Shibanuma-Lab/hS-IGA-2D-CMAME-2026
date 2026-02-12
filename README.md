@@ -94,13 +94,36 @@ hS-IGA-2D-straight-crack/
 
 ## Requirements
 
-- **Python** 3.10 or higher
-- **Required packages**: `numpy`, `scipy`, `matplotlib`
+- **Python** 3.10 or higher (recommended: 3.12)
+- **Package manager**: `pipenv` (for virtual environment management)
+- **Required packages**: `numpy`, `scipy`
 - **Optional package**: `logzero` (enhanced log formatting; fallback to stdlib logging if not available)
 
 ---
 
 ## Setup
+
+### Option 1: Using pipenv (Recommended)
+
+```bash
+# Clone the repository
+git clone <repository-url>
+cd hS-IGA-2D-straight-crack
+
+# Install pipenv (if not already installed)
+pip install pipenv
+
+# Install dependencies and create virtual environment
+pipenv install
+
+# Install development dependencies (including logzero for enhanced logging)
+pipenv install --dev
+
+# Activate the virtual environment
+pipenv shell
+```
+
+### Option 2: Using venv
 
 ```bash
 # Clone the repository
@@ -112,7 +135,7 @@ python -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
 
 # Install dependencies
-pip install numpy scipy matplotlib
+pip install numpy scipy
 
 # (Optional) Enhanced logging
 pip install logzero
@@ -123,6 +146,19 @@ Ensure that FEM reference data (`.csv` / `.dat` / `.mat` files) are placed in th
 ---
 
 ## Running the Program
+
+### Using pipenv
+
+```bash
+# Run inside pipenv shell
+pipenv shell
+python main.py
+
+# Or run directly without activating shell
+pipenv run python main.py
+```
+
+### Using venv or system Python
 
 ```bash
 # Basic execution
