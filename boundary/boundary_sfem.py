@@ -47,6 +47,7 @@ def boundarysFEM(step):
         if max(xs) >= step * st.hL:
             eGFixY.append(e)
 
+    # Convert st.element (1-based) to 0-based node indices
     nGFixY = sorted(set(j - 1 for e in eGFixY for j in st.element[e]))
     yfixG  = sorted(set(nGFixY).intersection(downNodes))
     yfixG  = sorted(set(yfixG) - set(rightNodes))

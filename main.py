@@ -39,6 +39,7 @@ from solver.solve import solve
 from postprocess.getresult import getresult
 from postprocess.find_uG_uL import finduGuL
 from postprocess.savedata import savedata
+from postprocess.debug_output import write_debug_info
 
 
 def execution():
@@ -83,6 +84,10 @@ def execution():
                 makematrix()
                 boundary(step)
                 initial(step)
+                
+                # Write debug info (mesh, BC, initial conditions) if enabled
+                write_debug_info(step)
+                
                 solve(step)
                 getresult()
                 if int(st.islocal) == 1:
@@ -98,7 +103,7 @@ def execution():
 # ====================================================================
 if __name__ == "__main__":
     # 1) Load parameters (rGL value can be changed here)
-    load_parameters(rGL_value=6)
+    load_parameters(rGL_value=2)
 
     # 2) Load FEM reference data
     load_fem_data(version=st.v, step_label=st.step_label_fem)
