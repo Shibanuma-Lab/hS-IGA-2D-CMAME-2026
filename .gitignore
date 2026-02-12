@@ -1,9 +1,6 @@
 # Original monolithic script (kept for reference but not part of the modular project)
 DSIGA_卒論_rGL.py
 
-# FEM reference data (large binary / CSV files)
-FEM_data/
-
 # Python bytecode
 __pycache__/
 *.pyc
