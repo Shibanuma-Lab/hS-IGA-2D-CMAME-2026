@@ -62,6 +62,19 @@ def load_parameters(rGL_value=2):
     st.ini1x = 2                       # Left boundary initial condition: 1=0, 2=interpolated
     st.zentai = 0
 
+    # Interpolation method selection
+    # Options:
+    #   "delaunay": Linear interpolation with Delaunay triangulation (matches Mathematica)
+    #   "bilinear": Bilinear interpolation on quad mesh (uses element connectivity)
+    st.interpolator_type = "bilinear"  # Default: Delaunay (Mathematica-compatible)
+    
+    # Debug: Use pre-computed boundary conditions from Mathematica
+    # When True, reads interpolated BC values from FEM_data/interpolated_bc_all.csv
+    # instead of computing interpolation in Python. Use this to isolate interpolation
+    # errors when comparing Python vs Mathematica results.
+    # CSV format: step, node_id, disp_x, disp_y
+    st.use_precomputed_bc = False  # Set to True to debug interpolation differences
+
     # Method switches
     st.islocallist = 1                 # 0: Standard FEM, 1: S-version FEM
     st.isdynamiclist = 1               # 0: Static, 1: Static-Dynamic

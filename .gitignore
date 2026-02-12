@@ -24,3 +24,10 @@ Thumbs.db
 
 # logs
 logs/
+
+# debug files
+DEBUG*
+example*
+IMPLEMENTATION*
+QUICK*
+test*
