@@ -34,11 +34,15 @@ class JIntegral2D:
 
     For 2D, the J-domain weight function uses radial band parameters only
     (``Rj0``, ``Rj1``).
+
+    ``jintegral_scheme`` controls algebra/scaling convention:
+    - ``mathematica``: match current Mathematica debug notebook workflow.
+    - ``standard``: keep the previous Python implementation.
     """
 
     def __init__(
         self,
-        step_start: int = 1,
+        step_start: int = 0,
         step_end: Optional[int] = None,
         Rj0: float = 1.5,
         Rj1: float = 1.515,
@@ -52,8 +56,14 @@ class JIntegral2D:
         self.Rj0 = float(Rj0)
         self.Rj1 = float(Rj1)
 
+        self.scheme = str(getattr(st, "jintegral_scheme", "mathematica")).strip().lower()
+        if self.scheme not in ("mathematica", "standard"):
+            raise ValueError(f"Unsupported jintegral_scheme: {self.scheme}")
+
         self.use_saved_files = bool(use_saved_files)
-        self.extend_symmetric = bool(extend_symmetric)
+        # Mathematica reference workflow uses original local half-domain
+        # (no geometric mirroring), with explicit scaling factors later.
+        self.extend_symmetric = bool(extend_symmetric) if self.scheme == "standard" else False
         self.save_extended_debug = bool(int(getattr(st, "jintegral_save_extended", 1)))
 
         def _f(val, default):
@@ -428,12 +438,13 @@ class JIntegral2D:
     # ------------------------------------------------------------------
     # J-integral / DSIF
     # ------------------------------------------------------------------
-    def _dynamic_factor_AI(self) -> float:
+    def _dynamic_factor_AI(self, v_override: Optional[float] = None) -> float:
         c1 = np.sqrt((1.0 - self.nu) / ((1.0 + self.nu) * (1.0 - 2.0 * self.nu)) * self.EE / self.rho)
         c2 = np.sqrt(self.EE / (2.0 * self.rho * (1.0 + self.nu)))
 
-        beta1_sq = 1.0 - (self.v / c1) ** 2
-        beta2_sq = 1.0 - (self.v / c2) ** 2
+        v_eff = self.v if v_override is None else float(v_override)
+        beta1_sq = 1.0 - (v_eff / c1) ** 2
+        beta2_sq = 1.0 - (v_eff / c2) ** 2
         if beta1_sq <= 0.0 or beta2_sq <= 0.0:
             return np.nan
 
@@ -450,9 +461,17 @@ class JIntegral2D:
             return self.EE
         return self.EE / (1.0 - self.nu ** 2)
 
-    def _calc_ki(self, J: float) -> float:
-        AI = self._dynamic_factor_AI()
-        if not np.isfinite(AI) or AI <= 0.0 or J <= 0.0:
+    def _calc_ki(self, J: float, v_override: Optional[float] = None) -> float:
+        if J <= 0.0:
+            return 0.0
+
+        # Static limit at v=0: use the classical relation K^2 = E' * J.
+        if v_override is not None and abs(float(v_override)) < 1e-14:
+            Eeff = self._effective_modulus()
+            return float(np.sqrt(Eeff * J))
+
+        AI = self._dynamic_factor_AI(v_override=v_override)
+        if not np.isfinite(AI) or AI <= 0.0:
             return 0.0
         Eeff = self._effective_modulus()
         return float(np.sqrt(Eeff * J / AI))
@@ -507,22 +526,45 @@ class JIntegral2D:
                 ay_gp = float(N @ ae[:, 1])
 
                 W = 0.5 * float(np.dot(strain, stress))
-                # 2D local-mesh coordinate convention:
-                # this sign matches the original 2D implementation.
-                s1 = W - (sxx * dux_dx + txy * duy_dx)
-                s2 = -(txy * dux_dx + syy * duy_dx)
-
-                J_static += (s1 * dq_dx + s2 * dq_dy) * det_jac * w
+                if self.scheme == "mathematica":
+                    # Match Mathematica notebook:
+                    # ((σyy*uy,x + σxy*ux,x - W) q,y + (σxy*uy,x + σxx*ux,x) q,x)
+                    J_static += (
+                        (syy * duy_dx + txy * dux_dx - W) * dq_dy
+                        + (txy * duy_dx + sxx * dux_dx) * dq_dx
+                    ) * det_jac * w
+                else:
+                    # Original Python implementation (kept as legacy mode).
+                    s1 = W - (sxx * dux_dx + txy * duy_dx)
+                    s2 = -(txy * dux_dx + syy * duy_dx)
+                    J_static += (s1 * dq_dx + s2 * dq_dy) * det_jac * w
                 # Match 3D reference: dynamic term does not multiply q at GP.
                 J_dynamic += self.rho * (ax_gp * dux_dx + ay_gp * duy_dx) * det_jac * w
 
-        if not self.extend_symmetric:
-            # If only upper half-mesh is used, mirror contribution.
-            J_static *= 2.0
-            J_dynamic *= 2.0
+        if self.scheme == "mathematica":
+            # Match Mathematica notebook post-scaling exactly.
+            # q(tip) is forced to 1.0 via _force_q_near_tip, so meas is usually 1.
+            dist2 = (data.node[:, 0] - x_tip) ** 2 + data.node[:, 1] ** 2
+            tip_idx = int(np.argmin(dist2))
+            meas = float(max(abs(q[tip_idx]), 1e-14))
+            J_static = (2.0 * J_static) / meas
+            J_dynamic = 2.0 * J_dynamic
+            J_total = (J_static + J_dynamic) * 2.0
+        else:
+            if not self.extend_symmetric:
+                # If only upper half-mesh is used, mirror contribution.
+                J_static *= 2.0
+                J_dynamic *= 2.0
+            J_total = J_static + J_dynamic
 
-        J_total = J_static + J_dynamic
-        K_I = self._calc_ki(J_total)
+        # Step 0 is static initialization:
+        # - ignore dynamic J contribution
+        # - evaluate K_I with crack speed v=0
+        if int(step) == 0:
+            J_dynamic = 0.0
+            J_total = J_static * 2.0 if not self.extend_symmetric else J_static
+
+        K_I = self._calc_ki(J_total, v_override=(0.0 if int(step) == 0 else None))
 
         return {
             "step": int(step),

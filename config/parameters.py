@@ -99,12 +99,16 @@ def load_parameters(rGL_value=2):
     # Domain parameters (in units of hL)
     st.jintegral_Rj0 = 1.5
     st.jintegral_Rj1 = 1.515
-    # Step range control: -1 means auto (start=2, end=stepall)
+    # Step range control: -1 means auto (start=0, end=stepall)
     st.jintegral_step_start = -1
     st.jintegral_step_end = -1
     # Data source options
     st.jintegral_use_saved_files = 1
     st.jintegral_extend_symmetric = 1
+    # Formula/scaling convention:
+    #   "mathematica": match current Mathematica debug notebook workflow.
+    #   "standard": previous Python implementation.
+    st.jintegral_scheme = "mathematica"
     # 1: write mirrored local mesh/fields for each J step (debug)
     st.jintegral_save_extended = 1
 

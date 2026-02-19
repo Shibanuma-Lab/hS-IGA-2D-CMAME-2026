@@ -6,6 +6,7 @@ Usage examples:
   python3 run_jintegral_2d.py
   python3 run_jintegral_2d.py --result-dir results/v_400_rGL_2_aL_5_lL_15_HL_4
   python3 run_jintegral_2d.py --result-dir ... --step-start 50 --step-end 80
+  python3 run_jintegral_2d.py --scheme mathematica --step-start 0 --step-end 20
   python3 run_jintegral_2d.py --result-dir ... --Rj0 1.5 --sweep-rj1 "2.01*Rj0,3.01*Rj0,4.01*Rj0"
 """
 
@@ -222,8 +223,15 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Calculate J-integral / DSIF from saved results.")
     parser.add_argument("--result-dir", type=Path, default=None, help="Result root directory")
     parser.add_argument("--rgl", type=int, default=2, help="rGL value used for default path init")
-    parser.add_argument("--step-start", type=int, default=2, help="Start step")
+    parser.add_argument("--step-start", type=int, default=0, help="Start step")
     parser.add_argument("--step-end", type=int, default=None, help="End step (default: auto)")
+    parser.add_argument(
+        "--scheme",
+        type=str,
+        choices=["mathematica", "standard"],
+        default=None,
+        help="J-integral algebra/scaling convention",
+    )
     parser.add_argument("--Rj0", type=float, default=None, help="Inner radial weight parameter")
     parser.add_argument("--Rj1", type=float, default=None, help="Outer radial weight parameter")
     parser.add_argument(
@@ -250,6 +258,8 @@ def main() -> None:
 
     _infer_meta_from_result_dir(result_dir)
     st.dirname = result_dir
+    if args.scheme is not None:
+        st.jintegral_scheme = args.scheme
 
     Rj0 = float(st.jintegral_Rj0 if args.Rj0 is None else args.Rj0)
 
@@ -274,6 +284,7 @@ def main() -> None:
         )
 
         print(f"[JINT] result_dir: {result_dir}")
+        print(f"[JINT] scheme:     {st.jintegral_scheme}")
         print(f"[JINT] output:     {output}")
         print(f"[JINT] steps:      {len(results)}")
         return
@@ -287,6 +298,7 @@ def main() -> None:
             raise ValueError(f"Invalid contour in sweep: Rj1 ({rj1}) must be > Rj0 ({Rj0}).")
 
     print(f"[JINT] result_dir: {result_dir}")
+    print(f"[JINT] scheme:     {st.jintegral_scheme}")
     print(f"[JINT] mode:       sweep-rj1 ({len(Rj1_list)} contours)")
 
     cases: List[Dict[str, object]] = []

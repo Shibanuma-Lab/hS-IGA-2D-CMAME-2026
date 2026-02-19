@@ -53,8 +53,8 @@ def run_jintegral_postprocess():
 
     step_start_cfg = int(getattr(st, "jintegral_step_start", -1))
     step_end_cfg = int(getattr(st, "jintegral_step_end", -1))
-    # Auto mode skips step 1 (first dynamic transition after static initialization).
-    step_start = 2 if step_start_cfg < 0 else step_start_cfg
+    # Auto mode includes the full range from static initialization.
+    step_start = 0 if step_start_cfg < 0 else step_start_cfg
     step_end = int(st.stepall) if step_end_cfg < 0 else step_end_cfg
     if step_start > step_end:
         step_start = step_end

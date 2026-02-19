@@ -85,6 +85,7 @@ jintegral_step_start = -1
 jintegral_step_end = -1
 jintegral_use_saved_files = 1
 jintegral_extend_symmetric = 1
+jintegral_scheme = "mathematica"
 jintegral_save_extended = 0
 
 jobnamelist = ""
