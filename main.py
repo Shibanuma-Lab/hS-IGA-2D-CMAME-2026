@@ -132,9 +132,22 @@ def run_jintegral_postprocess():
     if int(getattr(st, "jintegral_compare_fem", 0)) != 1:
         return
 
-    fem_mat = Path(getattr(st, "jintegral_fem_mat_file", "FEM_data/uvaG2DAllFEM2D_v_400_a_20.mat"))
-    if not fem_mat.is_absolute():
-        fem_mat = Path.cwd() / fem_mat
+    fem_mat_cfg = Path(getattr(st, "jintegral_fem_mat_file", "FEM_data/uvaG2DAllFEM2D_v_400_a_20.mat"))
+    if fem_mat_cfg.is_absolute():
+        fem_mat = fem_mat_cfg
+    else:
+        # Resolve relative path from project root first (stable), then cwd.
+        proj_root = Path(__file__).resolve().parent
+        cand_root = (proj_root / fem_mat_cfg).resolve()
+        cand_cwd = (Path.cwd() / fem_mat_cfg).resolve()
+        if cand_root.exists():
+            fem_mat = cand_root
+        else:
+            fem_mat = cand_cwd
+
+    if not fem_mat.exists():
+        print(f"[JINT] Skip FEM comparison: mat file not found: {fem_mat}")
+        return
     fem_out = st.dirname / f"J_integral_2D_FEM_v{int(st.v)}.csv"
     cmp_out = st.dirname / f"J_integral_2D_compare_hs_vs_FEM_v{int(st.v)}_rGL{int(st.rGL)}.csv"
 
@@ -217,7 +230,7 @@ def execution():
 # ====================================================================
 if __name__ == "__main__":
     # 1) Load parameters (rGL value can be changed here)
-    load_parameters(rGL_value=2)
+    load_parameters(rGL_value=8)
 
     # 2) Load FEM reference data
     load_fem_data(version=st.v, step_label=st.step_label_fem)

@@ -528,11 +528,11 @@ class JIntegral2D:
 
                 W = 0.5 * float(np.dot(strain, stress))
                 if self.scheme == "mathematica":
-                    # Match Mathematica notebook:
-                    # ((σyy*uy,x + σxy*ux,x - W) q,y + (σxy*uy,x + σxx*ux,x) q,x)
+                    # Match updated Mathematica notebook:
+                    # ((σxx*ux,x + σxy*uy,x - W) q,x + (σxy*ux,x + σyy*uy,x) q,y)
                     J_static += (
-                        (syy * duy_dx + txy * dux_dx - W) * dq_dy
-                        + (txy * duy_dx + sxx * dux_dx) * dq_dx
+                        (sxx * dux_dx + txy * duy_dx - W) * dq_dx
+                        + (txy * dux_dx + syy * duy_dx) * dq_dy
                     ) * det_jac * w
                 else:
                     # Original Python implementation (kept as legacy mode).
@@ -550,7 +550,7 @@ class JIntegral2D:
             meas = float(max(abs(q[tip_idx]), 1e-14))
             J_static = (2.0 * J_static) / meas
             J_dynamic = 2.0 * J_dynamic
-            J_total = (J_static + J_dynamic) * 2.0
+            J_total = J_static + J_dynamic
         else:
             if not self.extend_symmetric:
                 # If only upper half-mesh is used, mirror contribution.

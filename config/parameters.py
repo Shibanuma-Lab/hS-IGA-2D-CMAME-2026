@@ -33,7 +33,7 @@ def load_parameters(rGL_value=2):
     # Scale / ratio
     st.rGLlist = rGL_value
     st.hG = st.hL * st.rGLlist * math.sqrt(0.97)  # Global mesh element size
-    st.HLlist = math.ceil((18/10)*st.rGLlist)      # Ensure HL >= 1.8 * rGL
+    st.HLlist = math.ceil((12/10)*st.rGLlist)      # Ensure HL >= 1.8 * rGL
     st.lLlist = 15
     st.aLlist = math.ceil((25/10)*st.rGLlist)      # Ensure aL >= 2.5 * rGL
 
