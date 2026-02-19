@@ -7,6 +7,8 @@ from the original single-file script.
 """
 
 from datetime import datetime
+import csv
+from pathlib import Path
 
 # ---- Shared state (replaces all 'global' declarations) ----
 import core.state as st
@@ -40,7 +42,55 @@ from postprocess.getresult import getresult
 from postprocess.find_uG_uL import finduGuL
 from postprocess.savedata import savedata
 from postprocess.debug_output import write_debug_info
-from postprocess.jintegral_2d import calculate_jintegral_2d
+from postprocess.jintegral_2d import (
+    calculate_jintegral_2d,
+    calculate_jintegral_2d_fem_from_mat,
+    compare_jintegral_results,
+)
+
+
+def _write_norm_compare_csv(rows, output_file: Path):
+    output_file = Path(output_file)
+    if output_file.parent != Path("."):
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(output_file, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(
+            [
+                "Step",
+                "J_hs",
+                "J_fem",
+                "J_norm_hs_over_fem",
+                "J_static_hs",
+                "J_static_fem",
+                "J_static_norm_hs_over_fem",
+                "J_dynamic_hs",
+                "J_dynamic_fem",
+                "J_dynamic_norm_hs_over_fem",
+                "K_I_hs",
+                "K_I_fem",
+                "K_I_norm_hs_over_fem",
+            ]
+        )
+        for r in rows:
+            writer.writerow(
+                [
+                    int(r["step"]),
+                    r["J_hs"],
+                    r["J_fem"],
+                    r["J_norm"],
+                    r["J_static_hs"],
+                    r["J_static_fem"],
+                    r["J_static_norm"],
+                    r["J_dynamic_hs"],
+                    r["J_dynamic_fem"],
+                    r["J_dynamic_norm"],
+                    r["K_I_hs"],
+                    r["K_I_fem"],
+                    r["K_I_norm"],
+                ]
+            )
 
 
 def run_jintegral_postprocess():
@@ -78,6 +128,31 @@ def run_jintegral_postprocess():
         extend_symmetric=bool(int(getattr(st, "jintegral_extend_symmetric", 1))),
     )
     print(f"[JINT] Done. {len(results)} steps written to: {out_file}")
+
+    if int(getattr(st, "jintegral_compare_fem", 0)) != 1:
+        return
+
+    fem_mat = Path(getattr(st, "jintegral_fem_mat_file", "FEM_data/uvaG2DAllFEM2D_v_400_a_20.mat"))
+    if not fem_mat.is_absolute():
+        fem_mat = Path.cwd() / fem_mat
+    fem_out = st.dirname / f"J_integral_2D_FEM_v{int(st.v)}.csv"
+    cmp_out = st.dirname / f"J_integral_2D_compare_hs_vs_FEM_v{int(st.v)}_rGL{int(st.rGL)}.csv"
+
+    print(f"[JINT] Calculating FEM reference from: {fem_mat}")
+    fem_results = calculate_jintegral_2d_fem_from_mat(
+        fem_mat_file=fem_mat,
+        step_start=step_start,
+        step_end=step_end,
+        Rj0=float(st.jintegral_Rj0),
+        Rj1=float(st.jintegral_Rj1),
+        result_dir=st.dirname,
+        output_file=fem_out,
+        extend_symmetric=bool(int(getattr(st, "jintegral_extend_symmetric", 1))),
+    )
+    comp_rows = compare_jintegral_results(results, fem_results)
+    _write_norm_compare_csv(comp_rows, cmp_out)
+    print(f"[JINT] FEM done. {len(fem_results)} steps written to: {fem_out}")
+    print(f"[JINT] Compare done. {len(comp_rows)} common steps written to: {cmp_out}")
 
 
 def execution():

@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
+from scipy.io import loadmat
 
 import core.state as st
 from utils.shape_functions import GP, GW, shp, Dshp, enlarge
@@ -562,7 +563,7 @@ class JIntegral2D:
         # - evaluate K_I with crack speed v=0
         if int(step) == 0:
             J_dynamic = 0.0
-            J_total = J_static * 2.0 if not self.extend_symmetric else J_static
+            J_total = J_static
 
         K_I = self._calc_ki(J_total, v_override=(0.0 if int(step) == 0 else None))
 
@@ -649,3 +650,213 @@ def calculate_jintegral_2d(
         extend_symmetric=extend_symmetric,
     )
     return calc.run(output_file=output_file)
+
+
+class JIntegral2DFEMReference(JIntegral2D):
+    """J-integral calculator for reference FEM results stored in a MATLAB .mat file."""
+
+    def __init__(
+        self,
+        fem_mat_file: Path,
+        step_start: int = 0,
+        step_end: Optional[int] = None,
+        Rj0: float = 1.5,
+        Rj1: float = 1.515,
+        result_dir: Optional[Path] = None,
+        extend_symmetric: bool = False,
+    ):
+        self.fem_mat_file = Path(fem_mat_file)
+        self.node_fem: Optional[np.ndarray] = None
+        self.elem_fem: Optional[np.ndarray] = None
+        self.dis_fem_all: Optional[np.ndarray] = None
+        self.vel_fem_all: Optional[np.ndarray] = None
+        self.acce_fem_all: Optional[np.ndarray] = None
+
+        super().__init__(
+            step_start=step_start,
+            step_end=step_end,
+            Rj0=Rj0,
+            Rj1=Rj1,
+            result_dir=result_dir,
+            use_saved_files=False,
+            extend_symmetric=extend_symmetric,
+        )
+        self._load_fem_mat()
+
+    @staticmethod
+    def _normalize_step_array(arr: np.ndarray, nnode: int, name: str) -> np.ndarray:
+        """
+        Convert array to shape (nstep, nnode, 2).
+        Supports common layouts such as:
+          (nstep, nnode, 2), (nnode, 2, nstep), (nnode, nstep, 2).
+        """
+        a = np.asarray(arr, dtype=float)
+        if a.ndim != 3:
+            raise ValueError(f"{name} must be 3D, got shape={a.shape}")
+
+        node_axes = [i for i, s in enumerate(a.shape) if s == nnode]
+        if len(node_axes) != 1:
+            raise ValueError(f"Cannot identify node axis for {name}, shape={a.shape}, nnode={nnode}")
+        node_axis = node_axes[0]
+
+        comp_axes = [i for i, s in enumerate(a.shape) if s == 2]
+        if len(comp_axes) == 0:
+            raise ValueError(f"Cannot identify component axis (=2) for {name}, shape={a.shape}")
+        comp_axis = comp_axes[0] if comp_axes[0] != node_axis else (comp_axes[1] if len(comp_axes) > 1 else -1)
+        if comp_axis < 0:
+            raise ValueError(f"Cannot identify component axis for {name}, shape={a.shape}")
+
+        step_axis = [i for i in range(3) if i not in (node_axis, comp_axis)]
+        if len(step_axis) != 1:
+            raise ValueError(f"Cannot identify step axis for {name}, shape={a.shape}")
+        step_axis = step_axis[0]
+
+        out = np.moveaxis(a, [step_axis, node_axis, comp_axis], [0, 1, 2])
+        if out.shape[2] < 2:
+            raise ValueError(f"{name} component dimension < 2 after normalization, shape={out.shape}")
+        return np.asarray(out[:, :, :2], dtype=float)
+
+    def _load_fem_mat(self) -> None:
+        if not self.fem_mat_file.exists():
+            raise FileNotFoundError(f"FEM mat file not found: {self.fem_mat_file}")
+
+        raw = loadmat(str(self.fem_mat_file))
+        if "Expression1" not in raw:
+            raise KeyError(f"Missing key 'Expression1' in mat file: {self.fem_mat_file}")
+
+        expr = raw["Expression1"]
+        if not isinstance(expr, np.ndarray) or expr.size == 0 or expr.dtype.names is None:
+            raise ValueError(f"Invalid 'Expression1' structure in mat file: {self.fem_mat_file}")
+
+        required = ("elemFEM", "nodeFEM", "disFEMsolutionAll", "velFEMsolutionAll", "acceFEMsolutionAll")
+        for key in required:
+            if key not in expr.dtype.names:
+                raise KeyError(f"Missing field '{key}' in Expression1 of {self.fem_mat_file}")
+
+        rec = expr[0, 0]
+
+        node = np.asarray(rec["nodeFEM"], dtype=float)
+        if node.ndim != 2 or node.shape[1] < 2:
+            raise ValueError(f"Invalid nodeFEM shape: {node.shape}")
+
+        elem = np.asarray(rec["elemFEM"], dtype=int)
+        if elem.ndim != 2 or elem.shape[1] < 4:
+            raise ValueError(f"Invalid elemFEM shape: {elem.shape}")
+        elem = np.asarray(elem[:, :4], dtype=int)
+        if int(np.min(elem)) >= 1:
+            elem = elem - 1
+
+        nnode = int(node.shape[0])
+        dis = self._normalize_step_array(rec["disFEMsolutionAll"], nnode, "disFEMsolutionAll")
+        vel = self._normalize_step_array(rec["velFEMsolutionAll"], nnode, "velFEMsolutionAll")
+        acce = self._normalize_step_array(rec["acceFEMsolutionAll"], nnode, "acceFEMsolutionAll")
+
+        nstep = dis.shape[0]
+        if vel.shape[0] != nstep or acce.shape[0] != nstep:
+            raise ValueError(
+                f"Inconsistent step counts in FEM arrays: dis={dis.shape}, vel={vel.shape}, acce={acce.shape}"
+            )
+
+        self.node_fem = np.asarray(node[:, :2], dtype=float)
+        self.elem_fem = elem
+        self.dis_fem_all = dis
+        self.vel_fem_all = vel
+        self.acce_fem_all = acce
+
+    def _available_steps(self) -> List[int]:
+        if self.dis_fem_all is None:
+            return []
+        nstep = int(self.dis_fem_all.shape[0])
+        if nstep <= 0:
+            return []
+        smin = max(0, int(self.step_start))
+        smax = nstep - 1 if self.step_end is None else min(int(self.step_end), nstep - 1)
+        if smin > smax:
+            return []
+        return list(range(smin, smax + 1))
+
+    def _get_step_data(self, step: int) -> StepData:
+        if self.node_fem is None or self.elem_fem is None:
+            raise RuntimeError("FEM reference data not loaded.")
+        if self.dis_fem_all is None or self.vel_fem_all is None or self.acce_fem_all is None:
+            raise RuntimeError("FEM reference fields not loaded.")
+
+        s = int(step)
+        if s < 0 or s >= self.dis_fem_all.shape[0]:
+            raise IndexError(f"Step {s} out of range [0, {self.dis_fem_all.shape[0] - 1}]")
+
+        return StepData(
+            node=self.node_fem,
+            elem=self.elem_fem,
+            dis=np.asarray(self.dis_fem_all[s], dtype=float),
+            vel=np.asarray(self.vel_fem_all[s], dtype=float),
+            acce=np.asarray(self.acce_fem_all[s], dtype=float),
+        )
+
+
+def calculate_jintegral_2d_fem_from_mat(
+    fem_mat_file: Path,
+    step_start: int = 0,
+    step_end: Optional[int] = None,
+    Rj0: float = 1.5,
+    Rj1: float = 1.515,
+    result_dir: Optional[Path] = None,
+    output_file: Optional[Path] = None,
+    extend_symmetric: bool = False,
+) -> List[Dict[str, float]]:
+    """Calculate J-integral / DSIF for reference FEM results from a MATLAB file."""
+    calc = JIntegral2DFEMReference(
+        fem_mat_file=fem_mat_file,
+        step_start=step_start,
+        step_end=step_end,
+        Rj0=Rj0,
+        Rj1=Rj1,
+        result_dir=result_dir,
+        extend_symmetric=extend_symmetric,
+    )
+    return calc.run(output_file=output_file)
+
+
+def compare_jintegral_results(
+    hs_results: List[Dict[str, float]],
+    fem_results: List[Dict[str, float]],
+) -> List[Dict[str, float]]:
+    """
+    Build normalized comparison table between hS-FEM and reference FEM.
+
+    Normalization is defined as:
+      ratio = hS_value / FEM_value
+    for total/static/dynamic J and K_I.
+    """
+    fem_by_step = {int(r["step"]): r for r in fem_results}
+    eps = 1e-14
+
+    def _ratio(a: float, b: float) -> float:
+        return float(np.nan) if abs(b) < eps else float(a / b)
+
+    rows: List[Dict[str, float]] = []
+    for hs in hs_results:
+        step = int(hs["step"])
+        if step not in fem_by_step:
+            continue
+        fm = fem_by_step[step]
+
+        rows.append(
+            {
+                "step": step,
+                "J_hs": float(hs["J"]),
+                "J_fem": float(fm["J"]),
+                "J_norm": _ratio(float(hs["J"]), float(fm["J"])),
+                "J_static_hs": float(hs["J_static"]),
+                "J_static_fem": float(fm["J_static"]),
+                "J_static_norm": _ratio(float(hs["J_static"]), float(fm["J_static"])),
+                "J_dynamic_hs": float(hs["J_dynamic"]),
+                "J_dynamic_fem": float(fm["J_dynamic"]),
+                "J_dynamic_norm": _ratio(float(hs["J_dynamic"]), float(fm["J_dynamic"])),
+                "K_I_hs": float(hs["K_I"]),
+                "K_I_fem": float(fm["K_I"]),
+                "K_I_norm": _ratio(float(hs["K_I"]), float(fm["K_I"])),
+            }
+        )
+
+    return rows

@@ -7,6 +7,7 @@ Usage examples:
   python3 run_jintegral_2d.py --result-dir results/v_400_rGL_2_aL_5_lL_15_HL_4
   python3 run_jintegral_2d.py --result-dir ... --step-start 50 --step-end 80
   python3 run_jintegral_2d.py --scheme mathematica --step-start 0 --step-end 20
+  python3 run_jintegral_2d.py --compare-fem --fem-mat FEM_data/uvaG2DAllFEM2D_v_400_a_20.mat
   python3 run_jintegral_2d.py --result-dir ... --Rj0 1.5 --sweep-rj1 "2.01*Rj0,3.01*Rj0,4.01*Rj0"
 """
 
@@ -23,7 +24,11 @@ import numpy as np
 import core.state as st
 from config.parameters import load_parameters
 from core.jobset import jobset
-from postprocess.jintegral_2d import calculate_jintegral_2d
+from postprocess.jintegral_2d import (
+    calculate_jintegral_2d,
+    calculate_jintegral_2d_fem_from_mat,
+    compare_jintegral_results,
+)
 
 
 def _infer_meta_from_result_dir(result_dir: Path) -> None:
@@ -219,6 +224,50 @@ def _write_sweep_files(
     return {"combined": combined, "summary": summary}
 
 
+def _write_norm_compare_csv(rows: List[Dict[str, float]], output_file: Path) -> None:
+    output_file = Path(output_file)
+    if output_file.parent != Path("."):
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(output_file, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(
+            [
+                "Step",
+                "J_hs",
+                "J_fem",
+                "J_norm_hs_over_fem",
+                "J_static_hs",
+                "J_static_fem",
+                "J_static_norm_hs_over_fem",
+                "J_dynamic_hs",
+                "J_dynamic_fem",
+                "J_dynamic_norm_hs_over_fem",
+                "K_I_hs",
+                "K_I_fem",
+                "K_I_norm_hs_over_fem",
+            ]
+        )
+        for r in rows:
+            writer.writerow(
+                [
+                    int(r["step"]),
+                    r["J_hs"],
+                    r["J_fem"],
+                    r["J_norm"],
+                    r["J_static_hs"],
+                    r["J_static_fem"],
+                    r["J_static_norm"],
+                    r["J_dynamic_hs"],
+                    r["J_dynamic_fem"],
+                    r["J_dynamic_norm"],
+                    r["K_I_hs"],
+                    r["K_I_fem"],
+                    r["K_I_norm"],
+                ]
+            )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Calculate J-integral / DSIF from saved results.")
     parser.add_argument("--result-dir", type=Path, default=None, help="Result root directory")
@@ -245,6 +294,19 @@ def main() -> None:
         ),
     )
     parser.add_argument("--output", type=Path, default=None, help="Output CSV path")
+    parser.add_argument(
+        "--compare-fem",
+        action="store_true",
+        help="Also compute FEM-reference J/K from a .mat file and output normalized comparison.",
+    )
+    parser.add_argument(
+        "--fem-mat",
+        type=Path,
+        default=Path("FEM_data/uvaG2DAllFEM2D_v_400_a_20.mat"),
+        help="Reference FEM .mat file containing elem/node/u/v/a arrays",
+    )
+    parser.add_argument("--fem-output", type=Path, default=None, help="Output CSV path for FEM J/K results")
+    parser.add_argument("--compare-output", type=Path, default=None, help="Output CSV path for normalized comparison")
     parser.add_argument("--no-extend", action="store_true", help="Disable symmetric mesh extension")
     args = parser.parse_args()
 
@@ -287,7 +349,37 @@ def main() -> None:
         print(f"[JINT] scheme:     {st.jintegral_scheme}")
         print(f"[JINT] output:     {output}")
         print(f"[JINT] steps:      {len(results)}")
+
+        if args.compare_fem:
+            fem_mat = args.fem_mat.resolve()
+            fem_output = args.fem_output
+            if fem_output is None:
+                fem_output = result_dir / f"J_integral_2D_FEM_v{int(st.v)}.csv"
+            cmp_output = args.compare_output
+            if cmp_output is None:
+                cmp_output = result_dir / f"J_integral_2D_compare_hs_vs_FEM_v{int(st.v)}_rGL{int(st.rGL)}.csv"
+
+            print(f"[JINT] FEM ref:    {fem_mat}")
+            fem_results = calculate_jintegral_2d_fem_from_mat(
+                fem_mat_file=fem_mat,
+                step_start=int(args.step_start),
+                step_end=args.step_end,
+                Rj0=Rj0,
+                Rj1=Rj1,
+                result_dir=result_dir,
+                output_file=fem_output,
+                extend_symmetric=(not args.no_extend),
+            )
+            comp_rows = compare_jintegral_results(results, fem_results)
+            _write_norm_compare_csv(comp_rows, cmp_output)
+
+            print(f"[JINT] fem_output: {fem_output}")
+            print(f"[JINT] compare:    {cmp_output}")
+            print(f"[JINT] common_steps={len(comp_rows)}")
         return
+
+    if args.compare_fem:
+        raise ValueError("--compare-fem is currently supported only in single-Rj1 mode (without --sweep-rj1).")
 
     if args.output is not None:
         print("[JINT] Note: --output is ignored in --sweep-rj1 mode.")

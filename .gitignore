@@ -42,3 +42,6 @@ test*
 *GUIDE*
 *SUMMARY*
 reference*
+
+# large data files (if any, e.g., FEM reference data)
+FEM_data/uva*

@@ -111,6 +111,9 @@ def load_parameters(rGL_value=2):
     st.jintegral_scheme = "mathematica"
     # 1: write mirrored local mesh/fields for each J step (debug)
     st.jintegral_save_extended = 1
+    # 1: also calculate FEM reference and hS/FEM normalized comparison in main.py
+    st.jintegral_compare_fem = 1
+    st.jintegral_fem_mat_file = "FEM_data/uvaG2DAllFEM2D_v_400_a_20.mat"
 
     # Job management
     st.jobnamelist = f"Default_v_{st.vlist}_rGL{st.rGLlist}_"

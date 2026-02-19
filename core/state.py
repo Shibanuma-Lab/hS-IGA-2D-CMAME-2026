@@ -87,6 +87,8 @@ jintegral_use_saved_files = 1
 jintegral_extend_symmetric = 1
 jintegral_scheme = "mathematica"
 jintegral_save_extended = 0
+jintegral_compare_fem = 0
+jintegral_fem_mat_file = "FEM_data/uvaG2DAllFEM2D_v_400_a_20.mat"
 
 jobnamelist = ""
 jobstart = 1
