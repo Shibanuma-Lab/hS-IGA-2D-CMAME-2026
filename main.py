@@ -40,6 +40,44 @@ from postprocess.getresult import getresult
 from postprocess.find_uG_uL import finduGuL
 from postprocess.savedata import savedata
 from postprocess.debug_output import write_debug_info
+from postprocess.jintegral_2d import calculate_jintegral_2d
+
+
+def run_jintegral_postprocess():
+    """Run J-integral / DSIF post-processing for the current job."""
+    if int(getattr(st, "calc_jintegral", 0)) != 1:
+        return
+    if int(st.islocal) != 1:
+        print("[JINT] Skip: J-integral requires local mesh (islocal=1).")
+        return
+
+    step_start_cfg = int(getattr(st, "jintegral_step_start", -1))
+    step_end_cfg = int(getattr(st, "jintegral_step_end", -1))
+    # Auto mode skips step 1 (first dynamic transition after static initialization).
+    step_start = 2 if step_start_cfg < 0 else step_start_cfg
+    step_end = int(st.stepall) if step_end_cfg < 0 else step_end_cfg
+    if step_start > step_end:
+        step_start = step_end
+
+    out_file = st.dirname / f"J_integral_2D_v{int(st.v)}_rGL{int(st.rGL)}.csv"
+
+    print("[JINT] Calculating J-integral / DSIF ...")
+    print(
+        f"[JINT] steps={step_start}..{step_end}, "
+        f"Rj0={st.jintegral_Rj0}, Rj1={st.jintegral_Rj1}"
+    )
+
+    results = calculate_jintegral_2d(
+        step_start=step_start,
+        step_end=step_end,
+        Rj0=float(st.jintegral_Rj0),
+        Rj1=float(st.jintegral_Rj1),
+        result_dir=st.dirname,
+        output_file=out_file,
+        use_saved_files=bool(int(getattr(st, "jintegral_use_saved_files", 1))),
+        extend_symmetric=bool(int(getattr(st, "jintegral_extend_symmetric", 1))),
+    )
+    print(f"[JINT] Done. {len(results)} steps written to: {out_file}")
 
 
 def execution():
@@ -96,6 +134,7 @@ def execution():
                     savedata(step)
 
         calnos()
+        run_jintegral_postprocess()
 
 
 # ====================================================================

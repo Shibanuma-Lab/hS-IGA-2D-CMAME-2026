@@ -15,8 +15,8 @@ from matrix.iga_xi_eta import IGAgemoGetXiEta
 def finduGuL():
     """
     1. Call ``buildVisual2D`` to get visualisation-mesh stresses / displacements.
-    2. For each local node, interpolate the IGA displacement via NURBS basis.
-    3. Sum: ``disLG2D = disL + disLofGIGA``.
+    2. For each local node, interpolate IGA displacement / velocity / acceleration.
+    3. Sum local + IGA contribution for displacement / velocity / acceleration.
     4. Compute local stresses at element corner points.
     """
     # ---- 1) IGA visualisation ----
@@ -47,31 +47,40 @@ def finduGuL():
         for i in range(nnmL)
     ]
 
-    edisIGA = [st.disG2D[np.array(sctr, dtype=int) - 1, :] for sctr in st.element]
+    def _interp_global_to_local(field_g2d):
+        """Interpolate a 2D nodal field from IGA nodes to local-mesh nodes."""
+        field_iga = [field_g2d[np.array(sctr, dtype=int) - 1, :] for sctr in st.element]
+        out = np.zeros((nnmL, 2), dtype=float)
 
-    # ---- 3) Interpolate IGA displacement at local nodes ----
-    st.disLofGIGA = np.zeros((nnmL, 2), dtype=float)
-    for i in range(nnmL):
-        e_idx = st.emGe[st.XiEtaGeG[i][1] - 1] - 1
-        idu_1b, idv_1b = st.index[e_idx]
-        xiE  = st.elRangeU[int(idu_1b) - 1]
-        etaE = st.elRangeV[int(idv_1b) - 1]
+        for i in range(nnmL):
+            e_idx = st.emGe[st.XiEtaGeG[i][1] - 1] - 1
+            idu_1b, idv_1b = st.index[e_idx]
+            xiE = st.elRangeU[int(idu_1b) - 1]
+            etaE = st.elRangeV[int(idv_1b) - 1]
 
-        xi_parent, eta_parent = nodeL2XiEtaInIGA[i]
-        Xi  = parent2ParametricSpace(tuple(xiE), xi_parent)
-        Eta = parent2ParametricSpace(tuple(etaE), eta_parent)
+            xi_parent, eta_parent = nodeL2XiEtaInIGA[i]
+            Xi = parent2ParametricSpace(tuple(xiE), xi_parent)
+            Eta = parent2ParametricSpace(tuple(etaE), eta_parent)
 
-        ni = FindSpanMinus(noPtsX - 1, p, float(Xi), uKnot)
-        nj = FindSpanMinus(noPtsY - 1, q, float(Eta), vKnot)
+            ni = FindSpanMinus(noPtsX - 1, p, float(Xi), uKnot)
+            nj = FindSpanMinus(noPtsY - 1, q, float(Eta), vKnot)
 
-        NN, _, _ = NURBS2DBasisDers(
-            ni, nj, p, q, uKnot, vKnot, float(Xi), float(Eta),
-            st.weights, lenu, lenv,
-        )
-        st.disLofGIGA[i, :] = NN @ edisIGA[e_idx]
+            NN, _, _ = NURBS2DBasisDers(
+                ni, nj, p, q, uKnot, vKnot, float(Xi), float(Eta),
+                st.weights, lenu, lenv,
+            )
+            out[i, :] = NN @ field_iga[e_idx]
+        return out
 
-    # ---- 4) Total local displacement ----
+    # ---- 3) Interpolate IGA fields at local nodes ----
+    st.disLofGIGA = _interp_global_to_local(st.disG2D)
+    st.velLofGIGA = _interp_global_to_local(st.velG2D)
+    st.acceLofGIGA = _interp_global_to_local(st.acceG2D)
+
+    # ---- 4) Total local fields (G + L) ----
     st.disLG2D = st.disL + st.disLofGIGA
+    st.velLG2D = st.velL + st.velLofGIGA
+    st.acceLG2D = st.acceL + st.acceLofGIGA
 
     # ---- 5) Local stress computation at element corners ----
     disLG2Delem = np.array([st.disLG2D[elem] for elem in st.elemL])

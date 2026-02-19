@@ -78,6 +78,14 @@ postprocess = 0
 issave = 1
 printcheck = 0
 meshonly = 0
+calc_jintegral = 0
+jintegral_Rj0 = 1.5
+jintegral_Rj1 = 1.515
+jintegral_step_start = -1
+jintegral_step_end = -1
+jintegral_use_saved_files = 1
+jintegral_extend_symmetric = 1
+jintegral_save_extended = 0
 
 jobnamelist = ""
 jobstart = 1
@@ -226,7 +234,8 @@ disL2D = None; velL2D = None; acceL2D = None; rfL2D = None
 disG = None; disL = None; velG = None; velL = None
 acceG = None; acceL = None; rfG = None; rfL = None
 rfMG = None; rfMG2D = None; rfML = None; rfML2D = None
-disLG2D = None; disLofGIGA = None
+disLG2D = None; velLG2D = None; acceLG2D = None
+disLofGIGA = None; velLofGIGA = None; acceLofGIGA = None
 stressVis = None; stressL = None
 
 # Visual arrays from buildVisual2D
@@ -246,8 +255,10 @@ disGL2DAllMa2D = []
 disLG2DAllMa2D = []
 velG2DAllMa2D = []
 velL2DAllMa2D = []
+velLG2DAllMa2D = []
 acceG2DAllMa2D = []
 acceL2DAllMa2D = []
+acceLG2DAllMa2D = []
 rfG2DAllMa2D = []
 rfL2DAllMa2D = []
 rfMG2DAlllMa2D = []

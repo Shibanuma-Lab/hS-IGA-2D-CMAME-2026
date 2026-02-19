@@ -93,6 +93,21 @@ def load_parameters(rGL_value=2):
     st.meshonly = 0
     st.debug_output = 1                # 1: Output detailed mesh/BC/initial info for each step (for debugging)
 
+    # J-integral / DSIF post-processing
+    # 1: calculate automatically at the end of each job in main.py
+    st.calc_jintegral = 1
+    # Domain parameters (in units of hL)
+    st.jintegral_Rj0 = 1.5
+    st.jintegral_Rj1 = 1.515
+    # Step range control: -1 means auto (start=2, end=stepall)
+    st.jintegral_step_start = -1
+    st.jintegral_step_end = -1
+    # Data source options
+    st.jintegral_use_saved_files = 1
+    st.jintegral_extend_symmetric = 1
+    # 1: write mirrored local mesh/fields for each J step (debug)
+    st.jintegral_save_extended = 1
+
     # Job management
     st.jobnamelist = f"Default_v_{st.vlist}_rGL{st.rGLlist}_"
     st.jobstart = 1
