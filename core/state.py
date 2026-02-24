@@ -19,7 +19,10 @@ import numpy as np
 # ===================================================================
 nodeFEM = None                # (N, 2)  FEM node coordinates
 disFEMsolutionAll = None      # (nt, N, 2)  FEM displacement solution
+velFEMsolutionAll = None      # (nt, N, 2)  FEM velocity solution
+acceFEMsolutionAll = None     # (nt, N, 2)  FEM acceleration solution
 elemFEM = None                # (M, 4)  FEM element connectivity (0-based)
+fem_mat_file = "FEM_data/uvaG2DAllFEM2D_v_400_a_20.mat"
 
 # ===================================================================
 # Fundamental parameters (set by config/parameters.py)
@@ -211,6 +214,7 @@ ebc = None
 nbc = None
 ebc1 = None
 ebc2 = None
+boundary_coord_tol = None
 
 # ===================================================================
 # Solver vectors

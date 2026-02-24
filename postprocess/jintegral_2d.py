@@ -15,9 +15,9 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
-from scipy.io import loadmat
 
 import core.state as st
+from utils.fem_struct_mat import load_fem_struct_mat
 from utils.shape_functions import GP, GW, shp, Dshp, enlarge
 
 
@@ -683,85 +683,13 @@ class JIntegral2DFEMReference(JIntegral2D):
         )
         self._load_fem_mat()
 
-    @staticmethod
-    def _normalize_step_array(arr: np.ndarray, nnode: int, name: str) -> np.ndarray:
-        """
-        Convert array to shape (nstep, nnode, 2).
-        Supports common layouts such as:
-          (nstep, nnode, 2), (nnode, 2, nstep), (nnode, nstep, 2).
-        """
-        a = np.asarray(arr, dtype=float)
-        if a.ndim != 3:
-            raise ValueError(f"{name} must be 3D, got shape={a.shape}")
-
-        node_axes = [i for i, s in enumerate(a.shape) if s == nnode]
-        if len(node_axes) != 1:
-            raise ValueError(f"Cannot identify node axis for {name}, shape={a.shape}, nnode={nnode}")
-        node_axis = node_axes[0]
-
-        comp_axes = [i for i, s in enumerate(a.shape) if s == 2]
-        if len(comp_axes) == 0:
-            raise ValueError(f"Cannot identify component axis (=2) for {name}, shape={a.shape}")
-        comp_axis = comp_axes[0] if comp_axes[0] != node_axis else (comp_axes[1] if len(comp_axes) > 1 else -1)
-        if comp_axis < 0:
-            raise ValueError(f"Cannot identify component axis for {name}, shape={a.shape}")
-
-        step_axis = [i for i in range(3) if i not in (node_axis, comp_axis)]
-        if len(step_axis) != 1:
-            raise ValueError(f"Cannot identify step axis for {name}, shape={a.shape}")
-        step_axis = step_axis[0]
-
-        out = np.moveaxis(a, [step_axis, node_axis, comp_axis], [0, 1, 2])
-        if out.shape[2] < 2:
-            raise ValueError(f"{name} component dimension < 2 after normalization, shape={out.shape}")
-        return np.asarray(out[:, :, :2], dtype=float)
-
     def _load_fem_mat(self) -> None:
-        if not self.fem_mat_file.exists():
-            raise FileNotFoundError(f"FEM mat file not found: {self.fem_mat_file}")
-
-        raw = loadmat(str(self.fem_mat_file))
-        if "Expression1" not in raw:
-            raise KeyError(f"Missing key 'Expression1' in mat file: {self.fem_mat_file}")
-
-        expr = raw["Expression1"]
-        if not isinstance(expr, np.ndarray) or expr.size == 0 or expr.dtype.names is None:
-            raise ValueError(f"Invalid 'Expression1' structure in mat file: {self.fem_mat_file}")
-
-        required = ("elemFEM", "nodeFEM", "disFEMsolutionAll", "velFEMsolutionAll", "acceFEMsolutionAll")
-        for key in required:
-            if key not in expr.dtype.names:
-                raise KeyError(f"Missing field '{key}' in Expression1 of {self.fem_mat_file}")
-
-        rec = expr[0, 0]
-
-        node = np.asarray(rec["nodeFEM"], dtype=float)
-        if node.ndim != 2 or node.shape[1] < 2:
-            raise ValueError(f"Invalid nodeFEM shape: {node.shape}")
-
-        elem = np.asarray(rec["elemFEM"], dtype=int)
-        if elem.ndim != 2 or elem.shape[1] < 4:
-            raise ValueError(f"Invalid elemFEM shape: {elem.shape}")
-        elem = np.asarray(elem[:, :4], dtype=int)
-        if int(np.min(elem)) >= 1:
-            elem = elem - 1
-
-        nnode = int(node.shape[0])
-        dis = self._normalize_step_array(rec["disFEMsolutionAll"], nnode, "disFEMsolutionAll")
-        vel = self._normalize_step_array(rec["velFEMsolutionAll"], nnode, "velFEMsolutionAll")
-        acce = self._normalize_step_array(rec["acceFEMsolutionAll"], nnode, "acceFEMsolutionAll")
-
-        nstep = dis.shape[0]
-        if vel.shape[0] != nstep or acce.shape[0] != nstep:
-            raise ValueError(
-                f"Inconsistent step counts in FEM arrays: dis={dis.shape}, vel={vel.shape}, acce={acce.shape}"
-            )
-
-        self.node_fem = np.asarray(node[:, :2], dtype=float)
-        self.elem_fem = elem
-        self.dis_fem_all = dis
-        self.vel_fem_all = vel
-        self.acce_fem_all = acce
+        fem = load_fem_struct_mat(self.fem_mat_file, require_dynamic_fields=True)
+        self.node_fem = fem["node"]
+        self.elem_fem = fem["elem"]
+        self.dis_fem_all = fem["dis"]
+        self.vel_fem_all = fem["vel"]
+        self.acce_fem_all = fem["acce"]
 
     def _available_steps(self) -> List[int]:
         if self.dis_fem_all is None:

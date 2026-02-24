@@ -1,44 +1,66 @@
 """
-Load FEM reference data (node coordinates, element connectivity, displacement
-solution) into ``core.state``.
+Load FEM reference data into ``core.state`` from one unified MAT struct file.
 """
 
-import numpy as np
-from scipy.io import loadmat
 from pathlib import Path
 
 import core.state as st
+from utils.fem_struct_mat import load_fem_struct_mat
 from utils.logger import logger
 
 # Resolve the FEM_data directory relative to this file's location
 _FEM_DIR = Path(__file__).resolve().parent.parent / "FEM_data"
 
 
-def load_fem_data(version: int = 1200, step_label: int = 200):
+def _resolve_mat_path(mat_file) -> Path:
+    if mat_file is None:
+        mat_file = getattr(st, "fem_mat_file", "FEM_data/uvaG2DAllFEM2D_v_400_a_20.mat")
+
+    path = Path(mat_file)
+    if path.is_absolute():
+        return path
+
+    cand_root = (_FEM_DIR.parent / path).resolve()
+    if cand_root.exists():
+        return cand_root
+    return (Path.cwd() / path).resolve()
+
+
+def load_fem_data(version=None, step_label=None, mat_file=None):
     """
     Load FEM reference data.
 
     Parameters
     ----------
-    version : int
-        Mesh density identifier (400 or 1200).
-    step_label : int
-        Step count embedded in the .mat filename.
+    version : int, optional
+        Legacy argument retained for backward compatibility.
+    step_label : int, optional
+        Legacy argument retained for backward compatibility.
+    mat_file : str or Path, optional
+        MAT struct path. If omitted, ``st.fem_mat_file`` is used.
     """
-    node_path = _FEM_DIR / f"nodeFEMv{version}.csv"
-    elem_path = _FEM_DIR / f"elemFEMv{version}.dat"
-    mat_path  = _FEM_DIR / f"disFEMsolutionAllrGLV{version}step{step_label}.mat"
+    if version is not None or step_label is not None:
+        logger.info(
+            "load_fem_data(version, step_label) is deprecated; "
+            "using unified MAT source instead."
+        )
 
-    logger.info("Loading FEM node file : %s", node_path)
-    st.nodeFEM = np.loadtxt(str(node_path), delimiter=",")
+    mat_path = _resolve_mat_path(mat_file)
+    logger.info("Loading FEM data from MAT struct: %s", mat_path)
 
-    logger.info("Loading FEM elem file : %s", elem_path)
-    st.elemFEM = np.loadtxt(str(elem_path), dtype=int) - 1   # 0-based
-
-    logger.info("Loading FEM solution   : %s", mat_path)
-    st.disFEMsolutionAll = loadmat(str(mat_path))["Expression1"][0][0][0]
+    fem = load_fem_struct_mat(mat_path, require_dynamic_fields=False)
+    st.nodeFEM = fem["node"]
+    st.elemFEM = fem["elem"]
+    st.disFEMsolutionAll = fem["dis"]
+    st.velFEMsolutionAll = fem["vel"]
+    st.acceFEMsolutionAll = fem["acce"]
+    st.fem_mat_file = str(mat_path)
 
     logger.info(
-        "FEM data loaded — nodes=%d  elems=%d  solution_shape=%s",
-        len(st.nodeFEM), len(st.elemFEM), st.disFEMsolutionAll.shape,
+        "FEM data loaded — nodes=%d elems=%d dis=%s vel=%s acce=%s",
+        len(st.nodeFEM),
+        len(st.elemFEM),
+        st.disFEMsolutionAll.shape,
+        st.velFEMsolutionAll.shape,
+        st.acceFEMsolutionAll.shape,
     )

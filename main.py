@@ -233,7 +233,7 @@ if __name__ == "__main__":
     load_parameters(rGL_value=8)
 
     # 2) Load FEM reference data
-    load_fem_data(version=st.v, step_label=st.step_label_fem)
+    load_fem_data(mat_file=getattr(st, "fem_mat_file", None))
 
     # 3) Run simulation
     execution()

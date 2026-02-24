@@ -67,7 +67,14 @@ def load_parameters(rGL_value=2):
     #   "delaunay": Linear interpolation with Delaunay triangulation (matches Mathematica)
     #   "bilinear": Bilinear interpolation on quad mesh (uses element connectivity)
     st.interpolator_type = "bilinear"  # Default: Delaunay (Mathematica-compatible)
-    
+
+    # FEM reference input (single source for BC interpolation + FEM J-integral)
+    st.fem_mat_file = "FEM_data/uvaG2DAllFEM2D_v_400_a_20.mat"
+
+    # Optional absolute tolerance override for geometric boundary node selection.
+    # None => auto tolerance based on control-point spacing.
+    st.boundary_coord_tol = None
+
     # Debug: Use pre-computed boundary conditions from Mathematica
     # When True, reads interpolated BC values from FEM_data/interpolated_bc_all.csv
     # instead of computing interpolation in Python. Use this to isolate interpolation
@@ -83,7 +90,7 @@ def load_parameters(rGL_value=2):
     st.stepini = 0
     st.stepend = 200
     st.stepall = st.stepend
-    st.step_label_fem = 200            # FEM reference data step label (for filename)
+    st.step_label_fem = 200            # Legacy parameter (kept for compatibility)
     st.REstart = 0
 
     # Post-processing / saving
@@ -113,7 +120,7 @@ def load_parameters(rGL_value=2):
     st.jintegral_save_extended = 1
     # 1: also calculate FEM reference and hS/FEM normalized comparison in main.py
     st.jintegral_compare_fem = 1
-    st.jintegral_fem_mat_file = "FEM_data/uvaG2DAllFEM2D_v_400_a_20.mat"
+    st.jintegral_fem_mat_file = st.fem_mat_file
 
     # Job management
     st.jobnamelist = f"Default_v_{st.vlist}_rGL{st.rGLlist}_"

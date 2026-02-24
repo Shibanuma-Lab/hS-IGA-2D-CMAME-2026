@@ -5,8 +5,8 @@ boundarysFEM – Dirichlet BCs for S-version FEM (islocal == 1).
 import numpy as np
 import core.state as st
 from utils.interpolator import BilinearQuadInterpolator, LinearDelaunayInterpolator
-import os
 from pathlib import Path
+from boundary.node_selector import find_nodes_on_extreme
 
 
 def boundarysFEM(step):
@@ -18,13 +18,11 @@ def boundarysFEM(step):
 
     Local boundary: edges of local mesh are fully fixed.
     """
-    right_val = st.hG * (st.nPtsX - 2)
-    up_val    = st.hG * (st.nPtsY - 2)
-
-    rightNodes = np.where(st.controlPts[:, 0] == right_val)[0]
-    upNodes    = np.where(st.controlPts[:, 1] == up_val)[0]
-    leftNodes  = np.where(st.controlPts[:, 0] == 0.0)[0]
-    downNodes  = np.where(st.controlPts[:, 1] == 0.0)[0]
+    coord_tol = getattr(st, "boundary_coord_tol", None)
+    rightNodes = find_nodes_on_extreme(st.controlPts, axis=0, side="max", atol=coord_tol)
+    upNodes    = find_nodes_on_extreme(st.controlPts, axis=1, side="max", atol=coord_tol)
+    leftNodes  = find_nodes_on_extreme(st.controlPts, axis=0, side="min", atol=coord_tol)
+    downNodes  = find_nodes_on_extreme(st.controlPts, axis=1, side="min", atol=coord_tol)
 
     up_part    = upNodes[:-1]
     right_part = np.sort(rightNodes)[::-1]
