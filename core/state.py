@@ -22,7 +22,9 @@ disFEMsolutionAll = None      # (nt, N, 2)  FEM displacement solution
 velFEMsolutionAll = None      # (nt, N, 2)  FEM velocity solution
 acceFEMsolutionAll = None     # (nt, N, 2)  FEM acceleration solution
 elemFEM = None                # (M, 4)  FEM element connectivity (0-based)
-fem_mat_file = "FEM_data/uvaG2DAllFEM2D_v_400_a_20.mat"
+fem_mat_prefix = "uvaG2DAllFEM2D"
+fem_mat_file = "auto"
+fem_mat_file_resolved = None
 
 # ===================================================================
 # Fundamental parameters (set by config/parameters.py)
@@ -42,6 +44,13 @@ thi = 1.0
 
 nPtsX = 120
 nPtsY = 7
+auto_global_domain = 1
+domain_target_x = 20.0e-3
+domain_target_y = 5.0e-3
+domain_x_actual = None
+domain_y_actual = None
+nelemX = None
+nelemY = None
 hL = 0.05e-3
 
 rGLlist = 8
@@ -91,7 +100,7 @@ jintegral_extend_symmetric = 1
 jintegral_scheme = "mathematica"
 jintegral_save_extended = 0
 jintegral_compare_fem = 0
-jintegral_fem_mat_file = "FEM_data/uvaG2DAllFEM2D_v_400_a_20.mat"
+jintegral_fem_mat_file = "auto"
 
 jobnamelist = ""
 jobstart = 1

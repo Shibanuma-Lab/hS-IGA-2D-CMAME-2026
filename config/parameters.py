@@ -25,10 +25,13 @@ def load_parameters(rGL_value=2):
     st.rho = 7800.0                    # Density [kg/m^3]
     st.thi = 1.0                       # Plate thickness
 
-    # IGA mesh
-    st.nPtsX = 120
-    st.nPtsY = 7
+    # IGA mesh (global nPtsX/nPtsY will be auto-derived in jobset from target size)
+    st.nPtsX = 120  # fallback value when auto_global_domain=0
+    st.nPtsY = 7    # fallback value when auto_global_domain=0
     st.hL = 0.05e-3
+    st.auto_global_domain = 1
+    st.domain_target_x = 20.0e-3
+    st.domain_target_y = 5.0e-3
 
     # Scale / ratio
     st.rGLlist = rGL_value
@@ -54,8 +57,11 @@ def load_parameters(rGL_value=2):
     # Analysis control
     st.inc = 1
     st.hrefLlist = 1
-    st.vlist = 400.0                   # Crack velocity [m/s]
-    st.v = int(st.vlist)               # FEM data version (initial, overridden by jobset)
+    st.vlist = 500.0                   # Crack velocity [m/s]
+    if isinstance(st.vlist, (list, tuple, np.ndarray)):
+        st.v = int(float(st.vlist[0]))
+    else:
+        st.v = int(float(st.vlist))    # FEM data version (initial, overridden by jobset)
     st.ismortar = 0
     st.nofix = 1
     st.abo = 0
@@ -69,7 +75,9 @@ def load_parameters(rGL_value=2):
     st.interpolator_type = "bilinear"  # Default: Delaunay (Mathematica-compatible)
 
     # FEM reference input (single source for BC interpolation + FEM J-integral)
-    st.fem_mat_file = "FEM_data/uvaG2DAllFEM2D_v_400_a_20.mat"
+    # "auto" => FEM_data/{prefix}_v_{int(st.v)}_a_{int(st.c_crack*1000)}.mat
+    st.fem_mat_prefix = "uvaG2DAllFEM2D"
+    st.fem_mat_file = "auto"
 
     # Optional absolute tolerance override for geometric boundary node selection.
     # None => auto tolerance based on control-point spacing.
@@ -120,7 +128,7 @@ def load_parameters(rGL_value=2):
     st.jintegral_save_extended = 1
     # 1: also calculate FEM reference and hS/FEM normalized comparison in main.py
     st.jintegral_compare_fem = 1
-    st.jintegral_fem_mat_file = st.fem_mat_file
+    st.jintegral_fem_mat_file = "auto"
 
     # Job management
     st.jobnamelist = f"Default_v_{st.vlist}_rGL{st.rGLlist}_"

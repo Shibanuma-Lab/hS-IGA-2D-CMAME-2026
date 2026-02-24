@@ -29,6 +29,31 @@ def getlist(value_or_list, job, list_name=""):
 
 
 # ------------------------------------------------------------------
+def _compute_ctrlpts_from_target_length(target_len: float, hG: float, degree: int):
+    """
+    Compute number of elements/control points from target domain length.
+
+    Returns
+    -------
+    (npts, nelem, actual_len)
+    """
+    if target_len <= 0.0:
+        raise ValueError(f"target_len must be > 0, got {target_len}")
+    if hG <= 0.0:
+        raise ValueError(f"hG must be > 0, got {hG}")
+
+    ratio = float(target_len) / float(hG)
+    nelem = max(1, int(math.ceil(ratio - 1.0e-12)))
+    # Keep actual domain strictly larger than requested target.
+    if nelem * hG <= target_len:
+        nelem += 1
+
+    npts = int(nelem + int(degree))
+    actual_len = float(nelem) * float(hG)
+    return npts, nelem, actual_len
+
+
+# ------------------------------------------------------------------
 def jobset(job):
     """Execute a full job-level setup."""
 
@@ -87,6 +112,28 @@ def jobset(job):
     # ---------------- scale / time step ----------------
     st.hG  = st.hL * st.rGL * math.sqrt(0.97)
     st.nLr = st.aL + st.lL
+
+    if int(getattr(st, "auto_global_domain", 1)) == 1:
+        st.nPtsX, st.nelemX, st.domain_x_actual = _compute_ctrlpts_from_target_length(
+            float(st.domain_target_x), float(st.hG), int(st.p)
+        )
+        st.nPtsY, st.nelemY, st.domain_y_actual = _compute_ctrlpts_from_target_length(
+            float(st.domain_target_y), float(st.hG), int(st.q)
+        )
+
+        print(
+            "Global domain auto-fit:",
+            f"Lx_target={st.domain_target_x:.6e}",
+            f"Ly_target={st.domain_target_y:.6e}",
+            f"-> Lx={st.domain_x_actual:.6e}",
+            f"Ly={st.domain_y_actual:.6e}",
+            f"(nelemX={st.nelemX}, nelemY={st.nelemY})",
+        )
+    else:
+        st.nelemX = int(st.nPtsX - st.p)
+        st.nelemY = int(st.nPtsY - st.q)
+        st.domain_x_actual = float(st.nelemX) * float(st.hG)
+        st.domain_y_actual = float(st.nelemY) * float(st.hG)
 
     st.beta_rayleigh = (
         2.57

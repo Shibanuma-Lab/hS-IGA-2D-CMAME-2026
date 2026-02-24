@@ -15,7 +15,7 @@ import core.state as st
 
 # ---- Configuration ----
 from config.parameters import load_parameters
-from config.fem_data import load_fem_data
+from config.fem_data import load_fem_data, resolve_fem_mat_path
 
 # ---- Core logic ----
 from core.alldata import Alldata
@@ -132,18 +132,11 @@ def run_jintegral_postprocess():
     if int(getattr(st, "jintegral_compare_fem", 0)) != 1:
         return
 
-    fem_mat_cfg = Path(getattr(st, "jintegral_fem_mat_file", "FEM_data/uvaG2DAllFEM2D_v_400_a_20.mat"))
-    if fem_mat_cfg.is_absolute():
-        fem_mat = fem_mat_cfg
+    fem_mat_cfg = getattr(st, "jintegral_fem_mat_file", "auto")
+    if str(fem_mat_cfg).strip().lower() == "auto" and getattr(st, "fem_mat_file_resolved", None):
+        fem_mat = Path(st.fem_mat_file_resolved)
     else:
-        # Resolve relative path from project root first (stable), then cwd.
-        proj_root = Path(__file__).resolve().parent
-        cand_root = (proj_root / fem_mat_cfg).resolve()
-        cand_cwd = (Path.cwd() / fem_mat_cfg).resolve()
-        if cand_root.exists():
-            fem_mat = cand_root
-        else:
-            fem_mat = cand_cwd
+        fem_mat = resolve_fem_mat_path(fem_mat_cfg)
 
     if not fem_mat.exists():
         print(f"[JINT] Skip FEM comparison: mat file not found: {fem_mat}")
@@ -193,6 +186,7 @@ def execution():
     for job in range(int(st.jobstart), int(st.jobend) + 1):
         Alldata()
         jobset(job)
+        load_fem_data(mat_file=getattr(st, "fem_mat_file", "auto"))
 
         for step in range(int(st.stepini), int(st.stepall) + 1):
             print("--------------------------------------------------")
@@ -232,8 +226,5 @@ if __name__ == "__main__":
     # 1) Load parameters (rGL value can be changed here)
     load_parameters(rGL_value=8)
 
-    # 2) Load FEM reference data
-    load_fem_data(mat_file=getattr(st, "fem_mat_file", None))
-
-    # 3) Run simulation
+    # 2) Run simulation (FEM mat is loaded per job after jobset)
     execution()
