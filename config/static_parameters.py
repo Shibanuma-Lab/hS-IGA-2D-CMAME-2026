@@ -120,7 +120,7 @@ def load_static_parameters(sweep_mode: str = "fix_rGL"):
     st.jintegral_compare_fem = 0
     st.interpolator_type = "bilinear"
     # Number of worker processes for static case sweep. Use 1 for serial run.
-    st.static_parallel_jobs = 4
+    st.static_parallel_jobs = 1
 
     st.jobstart = 1
 

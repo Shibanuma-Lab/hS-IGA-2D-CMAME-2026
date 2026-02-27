@@ -20,40 +20,8 @@ def _zero_snap(x: float, scale: float) -> float:
     return 0.0 if abs(x) < 1.0e-9 * scale else float(x)
 
 
-def compute_l2_norm():
-    """Compute the legacy static L2 norm over the whole plate."""
-    width = float(st.static_width)
-    height = float(st.static_height)
-    crack_tip_x = float(st.static_crack_tip_x)
-    mu = float(st.mu)
-    kappa = float(st.kappa)
-    h_back = float(st.hL) * 0.5
-    n_back_x = int(width / h_back)
-    n_back_y = int(height / h_back)
-
-    node_back_x = h_back * np.arange(0, n_back_x + 1, dtype=float)
-    node_back_y = h_back * np.arange(0, n_back_y + 1, dtype=float)
-    node_back = np.array(
-        [[_zero_snap(x, height), _zero_snap(y, height)] for y in node_back_y for x in node_back_x],
-        dtype=float,
-    )
-
-    elem_back = []
-    for iy in range(n_back_y):
-        for ix in range(n_back_x):
-            n0 = iy * (n_back_x + 1) + ix
-            n1 = n0 + 1
-            n2 = n0 + (n_back_x + 1) + 1
-            n3 = n0 + (n_back_x + 1)
-            elem_back.append([n0, n1, n2, n3])
-    elem_back = np.asarray(elem_back, dtype=int)
-
-    uGx = BilinearQuadInterpolator(st.nodeG, st.elemGI, st.disG2D[:, 0], name="static_meshG_x")
-    uGy = BilinearQuadInterpolator(st.nodeG, st.elemGI, st.disG2D[:, 1], name="static_meshG_y")
-    uLx = BilinearQuadInterpolator(st.nodeL, st.elemL, st.disLG2D[:, 0], name="static_meshL_x")
-    uLy = BilinearQuadInterpolator(st.nodeL, st.elemL, st.disLG2D[:, 1], name="static_meshL_y")
-
-    # Keep the same quadrature table and indexing as the legacy static script.
+def _legacy_l2_quadrature():
+    """Return the legacy 4-point quadrature table used by the original script."""
     intpco = [
         [0.0],
         [-0.5773502691896258, 0.5773502691896258],
@@ -104,7 +72,130 @@ def compute_l2_norm():
     gw1 = np.array(wlist[intp - 1], dtype=float)
     gauss_points = np.array([(b, a) for a in gp1 for b in gp1], dtype=float)
     weights = np.outer(gw1, gw1).flatten()
+    return gauss_points, weights
 
+
+def _build_structured_field(nodes: np.ndarray, values: np.ndarray, decimals: int = 14):
+    """
+    Build a tensor-grid field table for fast bilinear interpolation.
+    Returns ``(x_grid, y_grid, field_2d)`` or ``None`` if the mesh is not structured.
+    """
+    nodes = np.asarray(nodes, dtype=float)
+    values = np.asarray(values, dtype=float).reshape(-1)
+    if nodes.ndim != 2 or nodes.shape[1] != 2 or len(nodes) != len(values):
+        return None
+
+    xr = np.round(nodes[:, 0], decimals=decimals)
+    yr = np.round(nodes[:, 1], decimals=decimals)
+    x_grid = np.unique(xr)
+    y_grid = np.unique(yr)
+    nx = len(x_grid)
+    ny = len(y_grid)
+    if nx * ny != len(nodes):
+        return None
+
+    ix = np.searchsorted(x_grid, xr)
+    iy = np.searchsorted(y_grid, yr)
+    field = np.full((ny, nx), np.nan, dtype=float)
+    field[iy, ix] = values
+    if np.isnan(field).any():
+        return None
+
+    return x_grid.astype(float), y_grid.astype(float), field
+
+
+def _interp_structured_bilinear(x_grid, y_grid, field_2d, xq, yq):
+    """Vectorized bilinear interpolation on a structured grid."""
+    xq = np.asarray(xq, dtype=float)
+    yq = np.asarray(yq, dtype=float)
+
+    ix = np.searchsorted(x_grid, xq, side="right") - 1
+    iy = np.searchsorted(y_grid, yq, side="right") - 1
+    ix = np.clip(ix, 0, len(x_grid) - 2)
+    iy = np.clip(iy, 0, len(y_grid) - 2)
+
+    x0 = x_grid[ix]
+    x1 = x_grid[ix + 1]
+    y0 = y_grid[iy]
+    y1 = y_grid[iy + 1]
+
+    tx = np.divide(xq - x0, x1 - x0, out=np.zeros_like(xq), where=np.abs(x1 - x0) > 0.0)
+    ty = np.divide(yq - y0, y1 - y0, out=np.zeros_like(yq), where=np.abs(y1 - y0) > 0.0)
+
+    v00 = field_2d[iy, ix]
+    v10 = field_2d[iy, ix + 1]
+    v11 = field_2d[iy + 1, ix + 1]
+    v01 = field_2d[iy + 1, ix]
+
+    return (
+        (1.0 - tx) * (1.0 - ty) * v00
+        + tx * (1.0 - ty) * v10
+        + tx * ty * v11
+        + (1.0 - tx) * ty * v01
+    )
+
+
+def _exact_u_legacy_vec(x, y, crack_tip_x, mu, kappa):
+    """Vectorized legacy analytical displacement field."""
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    xpolar = x - float(crack_tip_x)
+    ypolar = y
+    r = np.hypot(xpolar, ypolar)
+
+    theta = np.empty_like(xpolar)
+    mask_zero = xpolar == 0.0
+    mask_pos = xpolar > 0.0
+    mask_neg = ~(mask_zero | mask_pos)
+    theta[mask_zero] = math.pi / 2.0
+    theta[mask_pos] = np.arctan(ypolar[mask_pos] / xpolar[mask_pos])
+    theta[mask_neg] = math.pi + np.arctan(ypolar[mask_neg] / xpolar[mask_neg])
+
+    factor = np.zeros_like(r)
+    nonzero = r > 0.0
+    factor[nonzero] = (1.0 / (2.0 * float(mu))) * np.sqrt(r[nonzero] / (2.0 * math.pi))
+
+    half = 0.5 * theta
+    s = np.sin(half)
+    c = np.cos(half)
+    u1 = factor * c * (float(kappa) - 1.0 + 2.0 * s * s)
+    u2 = factor * s * (float(kappa) + 1.0 - 2.0 * c * c)
+    return u1, u2
+
+
+def _compute_l2_norm_fallback():
+    """Legacy robust path (generic interpolator search for each quadrature point)."""
+    width = float(st.static_width)
+    height = float(st.static_height)
+    crack_tip_x = float(st.static_crack_tip_x)
+    mu = float(st.mu)
+    kappa = float(st.kappa)
+    h_back = float(st.hL) * 0.5
+    n_back_x = int(width / h_back)
+    n_back_y = int(height / h_back)
+
+    node_back_x = h_back * np.arange(0, n_back_x + 1, dtype=float)
+    node_back_y = h_back * np.arange(0, n_back_y + 1, dtype=float)
+    node_back = np.array(
+        [[_zero_snap(x, height), _zero_snap(y, height)] for y in node_back_y for x in node_back_x],
+        dtype=float,
+    )
+    elem_back = []
+    for iy in range(n_back_y):
+        for ix in range(n_back_x):
+            n0 = iy * (n_back_x + 1) + ix
+            n1 = n0 + 1
+            n2 = n0 + (n_back_x + 1) + 1
+            n3 = n0 + (n_back_x + 1)
+            elem_back.append([n0, n1, n2, n3])
+    elem_back = np.asarray(elem_back, dtype=int)
+
+    uGx = BilinearQuadInterpolator(st.nodeG, st.elemGI, st.disG2D[:, 0], name="static_meshG_x")
+    uGy = BilinearQuadInterpolator(st.nodeG, st.elemGI, st.disG2D[:, 1], name="static_meshG_y")
+    uLx = BilinearQuadInterpolator(st.nodeL, st.elemL, st.disLG2D[:, 0], name="static_meshL_x")
+    uLy = BilinearQuadInterpolator(st.nodeL, st.elemL, st.disLG2D[:, 1], name="static_meshL_y")
+
+    gauss_points, weights = _legacy_l2_quadrature()
     min_lx = float(np.min(st.nodeL[:, 0]))
     max_lx = float(np.max(st.nodeL[:, 0]))
     min_ly = float(np.min(st.nodeL[:, 1]))
@@ -113,25 +204,6 @@ def compute_l2_norm():
     ut_nt_nu = 0.0
     ut_nt_nu_theo = 0.0
 
-    def exact_u_legacy(point):
-        x = float(point[0])
-        y = float(point[1])
-        xpolar = x - crack_tip_x
-        ypolar = y
-        r = math.hypot(xpolar, ypolar)
-
-        if xpolar == 0.0:
-            theta = math.pi / 2.0
-        elif xpolar > 0.0:
-            theta = math.atan(ypolar / xpolar)
-        else:
-            theta = math.pi + math.atan(ypolar / xpolar)
-
-        factor = (1.0 / (2.0 * mu)) * math.sqrt(r / (2.0 * math.pi))
-        u1 = factor * math.cos(theta / 2.0) * (kappa - 1.0 + 2.0 * math.sin(theta / 2.0) ** 2)
-        u2 = factor * math.sin(theta / 2.0) * (kappa + 1.0 - 2.0 * math.cos(theta / 2.0) ** 2)
-        return np.array([u1, u2], dtype=float)
-
     for conn in elem_back:
         elem_nodes = node_back[conn]
         for gp_idx, (xi, eta) in enumerate(gauss_points):
@@ -139,17 +211,108 @@ def compute_l2_norm():
             jac = dshp @ elem_nodes
             det_jac = float(np.linalg.det(jac))
             phys = (shp(np.array([xi, eta], dtype=float)).ravel() @ elem_nodes).astype(float)
-
             if min_lx <= phys[0] <= max_lx and min_ly <= phys[1] <= max_ly:
                 ui = np.array([uLx(phys), uLy(phys)], dtype=float)
             else:
                 ui = np.array([uGx(phys), uGy(phys)], dtype=float)
 
-            u_exact = exact_u_legacy(phys)
+            ux_ref, uy_ref = _exact_u_legacy_vec(
+                np.array([phys[0]], dtype=float),
+                np.array([phys[1]], dtype=float),
+                crack_tip_x,
+                mu,
+                kappa,
+            )
+            u_exact = np.array([ux_ref[0], uy_ref[0]], dtype=float)
+
             diff = ui - u_exact
             w = float(weights[gp_idx])
             ut_nt_nu += w * float(np.dot(diff, diff)) * det_jac
             ut_nt_nu_theo += w * float(np.dot(u_exact, u_exact)) * det_jac
+
+    if ut_nt_nu_theo <= 0.0:
+        return float("nan")
+    return math.sqrt(ut_nt_nu / ut_nt_nu_theo)
+
+
+def compute_l2_norm():
+    """
+    Compute the legacy static L2 norm over the whole plate.
+
+    Fast path:
+      structured-grid bilinear interpolation + batched quadrature evaluation.
+    Fallback path:
+      original point-by-point generic interpolation.
+    """
+    width = float(st.static_width)
+    height = float(st.static_height)
+    crack_tip_x = float(st.static_crack_tip_x)
+    mu = float(st.mu)
+    kappa = float(st.kappa)
+    h_back = float(st.hL) * 0.5
+    n_back_x = int(width / h_back)
+    n_back_y = int(height / h_back)
+
+    g_x = _build_structured_field(st.nodeG, st.disG2D[:, 0])
+    g_y = _build_structured_field(st.nodeG, st.disG2D[:, 1])
+    l_x = _build_structured_field(st.nodeL, st.disLG2D[:, 0])
+    l_y = _build_structured_field(st.nodeL, st.disLG2D[:, 1])
+
+    # If any mesh is not structured, preserve legacy behavior.
+    if g_x is None or g_y is None or l_x is None or l_y is None:
+        return _compute_l2_norm_fallback()
+
+    gx_grid, gy_grid, g_field_x = g_x
+    _, _, g_field_y = g_y
+    lx_grid, ly_grid, l_field_x = l_x
+    _, _, l_field_y = l_y
+
+    gauss_points, weights = _legacy_l2_quadrature()
+    half = 0.5 * h_back
+    det_jac = half * half
+    dx = gauss_points[:, 0] * half
+    dy = gauss_points[:, 1] * half
+    weighted_det = weights * det_jac
+    row_weights = np.tile(weighted_det, n_back_x)
+
+    min_lx = float(np.min(st.nodeL[:, 0]))
+    max_lx = float(np.max(st.nodeL[:, 0]))
+    min_ly = float(np.min(st.nodeL[:, 1]))
+    max_ly = float(np.max(st.nodeL[:, 1]))
+
+    centers_x = (np.arange(n_back_x, dtype=float) + 0.5) * h_back
+    centers_y = (np.arange(n_back_y, dtype=float) + 0.5) * h_back
+
+    ut_nt_nu = 0.0
+    ut_nt_nu_theo = 0.0
+
+    for cy in centers_y:
+        xq_mat = centers_x[:, None] + dx[None, :]
+        yq_mat = cy + dy[None, :]
+        yq_mat = np.broadcast_to(yq_mat, xq_mat.shape)
+
+        xq = xq_mat.reshape(-1)
+        yq = yq_mat.reshape(-1)
+        use_local = (xq >= min_lx) & (xq <= max_lx) & (yq >= min_ly) & (yq <= max_ly)
+
+        ux_num = np.empty_like(xq)
+        uy_num = np.empty_like(yq)
+
+        if np.any(use_local):
+            idx = np.where(use_local)[0]
+            ux_num[idx] = _interp_structured_bilinear(lx_grid, ly_grid, l_field_x, xq[idx], yq[idx])
+            uy_num[idx] = _interp_structured_bilinear(lx_grid, ly_grid, l_field_y, xq[idx], yq[idx])
+        if np.any(~use_local):
+            idx = np.where(~use_local)[0]
+            ux_num[idx] = _interp_structured_bilinear(gx_grid, gy_grid, g_field_x, xq[idx], yq[idx])
+            uy_num[idx] = _interp_structured_bilinear(gx_grid, gy_grid, g_field_y, xq[idx], yq[idx])
+
+        ux_ref, uy_ref = _exact_u_legacy_vec(xq, yq, crack_tip_x, mu, kappa)
+        diff_sq = (ux_num - ux_ref) ** 2 + (uy_num - uy_ref) ** 2
+        exact_sq = ux_ref ** 2 + uy_ref ** 2
+
+        ut_nt_nu += float(np.dot(row_weights, diff_sq))
+        ut_nt_nu_theo += float(np.dot(row_weights, exact_sq))
 
     if ut_nt_nu_theo <= 0.0:
         return float("nan")
