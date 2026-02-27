@@ -30,8 +30,8 @@ def load_parameters(rGL_value=2):
     st.nPtsY = 7    # fallback value when auto_global_domain=0
     st.hL = 0.05e-3
     st.auto_global_domain = 1
-    st.domain_target_x = 20.0e-3
-    st.domain_target_y = 5.0e-3
+    st.domain_target_x = 15.0e-3
+    st.domain_target_y = 2.5e-3
 
     # Scale / ratio
     st.rGLlist = rGL_value
