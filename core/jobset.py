@@ -53,6 +53,13 @@ def _compute_ctrlpts_from_target_length(target_len: float, hG: float, degree: in
     return npts, nelem, actual_len
 
 
+def _format_param_value(value) -> str:
+    value = float(value)
+    if value.is_integer():
+        return str(int(value))
+    return f"{value:.10g}"
+
+
 # ------------------------------------------------------------------
 def jobset(job):
     """Execute a full job-level setup."""
@@ -63,89 +70,136 @@ def jobset(job):
     print("number of jobs:", int(st.jobend) - int(st.jobstart) + 1)
     print()
 
+    repo_root = Path(__file__).resolve().parent.parent
+
     # ---------------- getlist ----------------
-    st.rGL      = getlist(st.rGLlist,      job, "rGLlist")
-    st.aL       = getlist(st.aLlist,       job, "aLlist")
-    st.lL       = getlist(st.lLlist,       job, "lLlist")
-    st.HL       = getlist(st.HLlist,       job, "HLlist")
-    st.hrefL    = getlist(st.hrefLlist,    job, "hrefLlist")
-    st.v        = getlist(st.vlist,        job, "vlist")
-    st.jobname  = getlist(st.jobnamelist,  job, "jobnamelist")
-    st.islocal  = getlist(st.islocallist,  job, "islocallist")
-    st.isdynamic = getlist(st.isdynamiclist, job, "isdynamiclist")
+    if getattr(st, "analysis_mode", "dynamic") == "static":
+        case = st.static_cases[job - 1]
+        st.rGL = float(case["rGL"])
+        st.hL = float(case["hL"])
+        st.hG = float(case["hG"])
+        st.aL = int(case["aL"])
+        st.lL = int(case["lL"])
+        st.HL = int(case["HL"])
+        st.nLr = int(st.aL + st.lL)
+        st.hrefL = 1
+        st.v = 0.0
+        st.jobname = f"static_case_{job:04d}"
+        st.islocal = 1
+        st.isdynamic = 0
+        st.static_case_hG = float(case["hG"])
+        st.static_case_hL = float(case["hL"])
+        st.static_case_nhL = int(case["nhL"])
+        st.static_case_nGx = int(case["nGx"])
+        st.static_case_nGy = int(case["nGy"])
+        st.static_case_label = (
+            f"hG_{_format_param_value(case['hG'])}_hL_{_format_param_value(case['hL'])}"
+        )
 
-    # ---------------- stepall ----------------
-    if st.stepend == -1:
-        st.stepall = int(round(st.c_crack / st.hL))
-    else:
-        st.stepall = int(st.stepend)
+        st.nPtsX = int(case["nGx"]) + int(st.p)
+        st.nPtsY = int(case["nGy"]) + int(st.q)
+        st.stepini = int(case["step"])
+        st.stepall = int(case["step"])
 
-    if st.meshonly == 1:
-        st.stepall = int(st.stepini)
-        st.jobend  = int(st.jobstart)
-
-    print("num. of step:", st.stepall)
-
-    # ---------------- directories ----------------
-    # Build parameter-based folder name
-    folder_name = f"v_{int(st.v)}_rGL_{st.rGL}_aL_{st.aL}_lL_{st.lL}_HL_{st.HL}"
-    results_dir = Path.cwd() / "results"
-    results_dir.mkdir(parents=True, exist_ok=True)
-    
-    st.dirname = results_dir / folder_name
-    print("Result folder:", folder_name)
-    print()
-
-    if not st.dirname.exists():
+        results_dir = repo_root / "static_results"
+        results_dir.mkdir(parents=True, exist_ok=True)
+        st.static_parent_dir = results_dir / str(st.static_parent_label)
+        st.static_parent_dir.mkdir(parents=True, exist_ok=True)
+        st.dirname = st.static_parent_dir / st.static_case_label
         st.dirname.mkdir(parents=True, exist_ok=True)
+        st.pvd = st.dirname
+        st.xld = st.dirname
 
-    st.pvd = st.dirname / "paraview"
-    if not st.pvd.exists():
-        st.pvd.mkdir(exist_ok=True)
-        (st.pvd / "vtu").mkdir(exist_ok=True)
-        (st.pvd / "pvtu").mkdir(exist_ok=True)
-
-    st.xld = st.dirname / "excel"
-    if not st.xld.exists():
-        st.xld.mkdir(exist_ok=True)
-
-    # ---------------- scale / time step ----------------
-    st.hG  = st.hL * st.rGL * math.sqrt(0.97)
-    st.nLr = st.aL + st.lL
-
-    if int(getattr(st, "auto_global_domain", 1)) == 1:
-        st.nPtsX, st.nelemX, st.domain_x_actual = _compute_ctrlpts_from_target_length(
-            float(st.domain_target_x), float(st.hG), int(st.p)
-        )
-        st.nPtsY, st.nelemY, st.domain_y_actual = _compute_ctrlpts_from_target_length(
-            float(st.domain_target_y), float(st.hG), int(st.q)
-        )
-
-        print(
-            "Global domain auto-fit:",
-            f"Lx_target={st.domain_target_x:.6e}",
-            f"Ly_target={st.domain_target_y:.6e}",
-            f"-> Lx={st.domain_x_actual:.6e}",
-            f"Ly={st.domain_y_actual:.6e}",
-            f"(nelemX={st.nelemX}, nelemY={st.nelemY})",
-        )
+        print("num. of step:", st.stepall)
+        print("Result folder:", st.dirname.relative_to(repo_root))
+        print()
     else:
-        st.nelemX = int(st.nPtsX - st.p)
-        st.nelemY = int(st.nPtsY - st.q)
-        st.domain_x_actual = float(st.nelemX) * float(st.hG)
-        st.domain_y_actual = float(st.nelemY) * float(st.hG)
+        st.rGL      = getlist(st.rGLlist,      job, "rGLlist")
+        st.aL       = getlist(st.aLlist,       job, "aLlist")
+        st.lL       = getlist(st.lLlist,       job, "lLlist")
+        st.HL       = getlist(st.HLlist,       job, "HLlist")
+        st.hrefL    = getlist(st.hrefLlist,    job, "hrefLlist")
+        st.v        = getlist(st.vlist,        job, "vlist")
+        st.jobname  = getlist(st.jobnamelist,  job, "jobnamelist")
+        st.islocal  = getlist(st.islocallist,  job, "islocallist")
+        st.isdynamic = getlist(st.isdynamiclist, job, "isdynamiclist")
 
-    st.beta_rayleigh = (
-        2.57
-        * (st.hG if int(st.islocal) == 0 else st.hL)
-        * math.sqrt(st.rho / st.EE)
-    )
+        # ---------------- stepall ----------------
+        if st.stepend == -1:
+            st.stepall = int(round(st.c_crack / st.hL))
+        else:
+            st.stepall = int(st.stepend)
 
-    if int(st.islocal) == 0:
-        st.Delta_t = st.hG / float(st.v)
-    else:
-        st.Delta_t = (st.hL / float(st.v)) if float(st.v) > 0.0 else 1.0
-    st.dt = st.Delta_t / float(st.inc)
+        if st.meshonly == 1:
+            st.stepall = int(st.stepini)
+            st.jobend  = int(st.jobstart)
+
+        print("num. of step:", st.stepall)
+
+        # ---------------- directories ----------------
+        folder_name = f"v_{int(st.v)}_rGL_{st.rGL}_aL_{st.aL}_lL_{st.lL}_HL_{st.HL}"
+        results_dir = repo_root / "results"
+        results_dir.mkdir(parents=True, exist_ok=True)
+
+        st.dirname = results_dir / folder_name
+        print("Result folder:", folder_name)
+        print()
+
+        if not st.dirname.exists():
+            st.dirname.mkdir(parents=True, exist_ok=True)
+
+        st.pvd = st.dirname / "paraview"
+        if not st.pvd.exists():
+            st.pvd.mkdir(exist_ok=True)
+            (st.pvd / "vtu").mkdir(exist_ok=True)
+            (st.pvd / "pvtu").mkdir(exist_ok=True)
+
+        st.xld = st.dirname / "excel"
+        if not st.xld.exists():
+            st.xld.mkdir(exist_ok=True)
+
+        # ---------------- scale / time step ----------------
+        st.hG  = st.hL * st.rGL * math.sqrt(0.97)
+        st.nLr = st.aL + st.lL
+
+        if int(getattr(st, "auto_global_domain", 1)) == 1:
+            st.nPtsX, st.nelemX, st.domain_x_actual = _compute_ctrlpts_from_target_length(
+                float(st.domain_target_x), float(st.hG), int(st.p)
+            )
+            st.nPtsY, st.nelemY, st.domain_y_actual = _compute_ctrlpts_from_target_length(
+                float(st.domain_target_y), float(st.hG), int(st.q)
+            )
+
+            print(
+                "Global domain auto-fit:",
+                f"Lx_target={st.domain_target_x:.6e}",
+                f"Ly_target={st.domain_target_y:.6e}",
+                f"-> Lx={st.domain_x_actual:.6e}",
+                f"Ly={st.domain_y_actual:.6e}",
+                f"(nelemX={st.nelemX}, nelemY={st.nelemY})",
+            )
+        else:
+            st.nelemX = int(st.nPtsX - st.p)
+            st.nelemY = int(st.nPtsY - st.q)
+            st.domain_x_actual = float(st.nelemX) * float(st.hG)
+            st.domain_y_actual = float(st.nelemY) * float(st.hG)
+
+        st.beta_rayleigh = (
+            2.57
+            * (st.hG if int(st.islocal) == 0 else st.hL)
+            * math.sqrt(st.rho / st.EE)
+        )
+
+        if int(st.islocal) == 0:
+            st.Delta_t = st.hG / float(st.v)
+        else:
+            st.Delta_t = (st.hL / float(st.v)) if float(st.v) > 0.0 else 1.0
+        st.dt = st.Delta_t / float(st.inc)
+
+    if getattr(st, "analysis_mode", "dynamic") == "static":
+        st.beta_rayleigh = 0.0
+        st.Delta_t = 1.0
+        st.dt = 1.0
 
     # ---------------- Hooke tensor ----------------
     if st.dmat == 1:

@@ -24,6 +24,14 @@ def stepset(step):
 
     droot = Path(st.dirname)
 
+    if getattr(st, "analysis_mode", "dynamic") == "static":
+        droot.mkdir(parents=True, exist_ok=True)
+        os.chdir(droot)
+        st.dirnamestep = str(droot)
+        if st.printcheck == 1:
+            print("setting_end")
+        return
+
     target = droot / num(step)
     if target.exists() and target.is_dir():
         shutil.rmtree(target)

@@ -96,6 +96,106 @@ def makeGlobalMesh(hG, nnx, nny):
     nPtsX = st.nPtsX
     nPtsY = st.nPtsY
 
+    if getattr(st, "analysis_mode", "dynamic") == "static":
+        width = float(st.static_width)
+        height = float(st.static_height)
+
+        knotUTemp = [i / (nPtsX - p) for i in range(0, (nPtsX - p) + 1)]
+        knotVTemp = [j / (nPtsY - q) for j in range(0, (nPtsY - q) + 1)]
+
+        st.uKnot = [0, 0] + list(knotUTemp) + [1, 1]
+        st.vKnot = [0, 0] + list(knotVTemp) + [1, 1]
+
+        st.uniqU = delete_duplicates_preserve_order(st.uKnot)
+        st.nelemU = len(st.uniqU) - 1
+        st.uniqV = delete_duplicates_preserve_order(st.vKnot)
+        st.nelemV = len(st.uniqV) - 1
+
+        st.weights = np.ones(nPtsX * nPtsY, dtype=float)
+        st.noU = nPtsX
+        st.noV = nPtsY
+
+        st.elRangeU = [[st.uniqU[i], st.uniqU[i + 1]] for i in range(st.nelemU)]
+        st.elRangeV = [[st.uniqV[j], st.uniqV[j + 1]] for j in range(st.nelemV)]
+
+        Lx = width
+        Ly = height
+
+        nodex = []
+        for i in range(1, st.noU + 1):
+            if i == 1:
+                nodex.append(0.0)
+            elif i == st.noU:
+                nodex.append(Lx)
+            else:
+                nodex.append(Lx * (2 * (i - 1) - 1) / (2.0 * st.nelemU))
+
+        nodey = []
+        for j in range(1, st.noV + 1):
+            if j == 1:
+                nodey.append(0.0)
+            elif j == st.noV:
+                nodey.append(Ly)
+            else:
+                nodey.append(Ly * (2 * (j - 1) - 1) / (2.0 * st.nelemV))
+
+        nodex = np.array(nodex, dtype=float)
+        nodey = np.array(nodey, dtype=float)
+        st.controlPts = np.array([[x, y] for y in nodey for x in nodex], dtype=float)
+
+        st.elConnU = []
+        for i in range(st.nelemU):
+            _ximid = 0.5 * (st.elRangeU[i][0] + st.elRangeU[i][1])
+            _span = FindSpanMinus(st.noU - 1, p, _ximid, st.uKnot)
+            st.elConnU.append(list(range((_span - p) + 1, _span + 1 + 1)))
+
+        st.elConnV = []
+        for j in range(st.nelemV):
+            _etamid = 0.5 * (st.elRangeV[j][0] + st.elRangeV[j][1])
+            _span = FindSpanMinus(st.noV - 1, q, _etamid, st.vKnot)
+            st.elConnV.append(list(range((_span - q) + 1, _span + 1 + 1)))
+
+        st.chan = np.arange(1, st.noU * st.noV + 1, dtype=int).reshape(st.noV, st.noU)
+        st.element = []
+        for vv in range(1, st.nelemV + 1):
+            for uu in range(1, st.nelemU + 1):
+                block = []
+                for vIdx in st.elConnV[vv - 1]:
+                    for uIdx in st.elConnU[uu - 1]:
+                        block.append(int(st.chan[vIdx - 1, uIdx - 1]))
+                st.element.append(block)
+        st.nelem = st.nelemU * st.nelemV
+        st.index = [[u, v] for v in range(1, st.nelemV + 1) for u in range(1, st.nelemU + 1)]
+
+        st.nodeVis, st.elemVis, st.nelemVis = _buildVisual2Dmesh(
+            st.controlPts, st.weights, st.uKnot, st.vKnot, p, q,
+        )
+
+        eGI0 = np.array(
+            [((st.noU) * i + j) for i in range(st.noV - 1) for j in range(0, st.noU - 1)],
+            dtype=int,
+        )
+        eGI1 = np.array(
+            [((st.noU) * i + j) for i in range(st.noV - 1) for j in range(1, st.noU)],
+            dtype=int,
+        )
+        eGI2 = np.array(
+            [((st.noU) * (i + 1) + j) for i in range(st.noV - 1) for j in range(1, st.noU)],
+            dtype=int,
+        )
+        eGI3 = np.array(
+            [((st.noU) * (i + 1) + j) for i in range(st.noV - 1) for j in range(0, st.noU - 1)],
+            dtype=int,
+        )
+        st.elemGI = np.vstack([eGI0, eGI1, eGI2, eGI3]).T
+
+        return {
+            "uKnot": st.uKnot, "vKnot": st.vKnot, "weights": st.weights,
+            "controlPts": st.controlPts, "element": st.element, "index": st.index,
+            "nodeVis": st.nodeVis, "elemVis": st.elemVis, "nelemVis": st.nelemVis,
+            "noU": st.noU, "noV": st.noV,
+        }
+
     # Knot vectors
     knotUTemp = [i / (nPtsX - p) for i in range(0, (nPtsX - p) + 1)]
     knotVTemp = [j / (nPtsY - q) for j in range(0, (nPtsY - q) + 1)]
@@ -165,6 +265,7 @@ def makeGlobalMesh(hG, nnx, nny):
     st.nelem = st.nelemU * st.nelemV
 
     st.index = [[u, v] for v in range(1, st.nelemV + 1) for u in range(1, st.nelemU + 1)]
+    st.elemGI = None
 
     # Build visualisation mesh
     st.nodeVis, st.elemVis, st.nelemVis = _buildVisual2Dmesh(

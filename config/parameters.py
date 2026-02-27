@@ -12,6 +12,9 @@ import core.state as st
 def load_parameters(rGL_value=2):
     """Populate ``core.state`` with default simulation parameters."""
 
+    st.analysis_mode = "dynamic"
+    st.save_vtu = 1
+
     st.p = 2
     st.q = 2
 

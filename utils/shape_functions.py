@@ -12,7 +12,7 @@ def GP(ngp):
     """Return Gauss point locations for *ngp* points on [-1, 1]."""
     if ngp == 1: return np.array([0.0])
     if ngp == 2: return np.array([-0.5773502, 0.5773502])
-    if ngp == 3: return np.array([0.0, -0.7745966, 0.7745966])
+    if ngp == 3: return np.array([0.0, -0.774596669241483, 0.774596669241483])
     if ngp == 4: return np.array([-0.3399810, 0.3399810, -0.8611363, 0.8611363])
     if ngp == 5: return np.array([0.0, -0.5384693, 0.5384693, -0.9061798, 0.9061798])
     if ngp == 6: return np.array([-0.2386191, 0.2386191, -0.6612093, 0.6612093, -0.9324695, 0.9324695])
@@ -23,7 +23,7 @@ def GW(ngp):
     """Return Gauss weights for *ngp* points on [-1, 1]."""
     if ngp == 1: return np.array([2.0])
     if ngp == 2: return np.array([1.0, 1.0])
-    if ngp == 3: return np.array([0.8888889, 0.5555555, 0.5555555])
+    if ngp == 3: return np.array([0.888888888888889, 0.555555555555556, 0.555555555555556])
     if ngp == 4: return np.array([0.6521452, 0.6521452, 0.3478548, 0.3478548])
     if ngp == 5: return np.array([0.5688888, 0.4786288, 0.4786288, 0.2369268, 0.2369268])
     if ngp == 6: return np.array([0.4679140, 0.4679140, 0.3607616, 0.3607616, 0.1713244, 0.1713244])

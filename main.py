@@ -16,6 +16,7 @@ import core.state as st
 # ---- Configuration ----
 from config.parameters import load_parameters
 from config.fem_data import load_fem_data, resolve_fem_mat_path
+from config.static_parameters import load_static_parameters
 
 # ---- Core logic ----
 from core.alldata import Alldata
@@ -46,6 +47,11 @@ from postprocess.jintegral_2d import (
     calculate_jintegral_2d,
     calculate_jintegral_2d_fem_from_mat,
     compare_jintegral_results,
+)
+from postprocess.static_metrics import (
+    compute_static_metrics,
+    write_case_metric_files,
+    write_static_summary_files,
 )
 
 
@@ -183,10 +189,13 @@ def execution():
                     if issave  == 1: savedata(step)
             calnos()
     """
+    static_metrics_rows = []
+
     for job in range(int(st.jobstart), int(st.jobend) + 1):
         Alldata()
         jobset(job)
-        load_fem_data(mat_file=getattr(st, "fem_mat_file", "auto"))
+        if getattr(st, "analysis_mode", "dynamic") != "static":
+            load_fem_data(mat_file=getattr(st, "fem_mat_file", "auto"))
 
         for step in range(int(st.stepini), int(st.stepall) + 1):
             print("--------------------------------------------------")
@@ -215,16 +224,22 @@ def execution():
                 if int(st.issave) == 1:
                     savedata(step)
 
-        calnos()
-        run_jintegral_postprocess()
+        if getattr(st, "analysis_mode", "dynamic") == "static":
+            metrics = compute_static_metrics()
+            write_case_metric_files(st.dirname, metrics)
+            static_metrics_rows.append(metrics)
+            write_static_summary_files(st.static_parent_dir, static_metrics_rows)
+        else:
+            calnos()
+            run_jintegral_postprocess()
 
 
 # ====================================================================
 # Script entry point
 # ====================================================================
 if __name__ == "__main__":
-    # 1) Load parameters (rGL value can be changed here)
-    load_parameters(rGL_value=8)
+    # Static branch default. Change to "fix_hG" or "fix_hL" as needed.
+    load_static_parameters(sweep_mode="fix_rGL")
 
-    # 2) Run simulation (FEM mat is loaded per job after jobset)
+    # Run simulation
     execution()

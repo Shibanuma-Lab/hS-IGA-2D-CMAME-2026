@@ -29,6 +29,9 @@ fem_mat_file_resolved = None
 # ===================================================================
 # Fundamental parameters (set by config/parameters.py)
 # ===================================================================
+analysis_mode = "dynamic"      # "dynamic" or "static"
+save_vtu = 1
+
 p = 2
 q = 2
 
@@ -106,6 +109,22 @@ jobnamelist = ""
 jobstart = 1
 jobend = 1
 
+# Static-analysis sweep configuration
+static_sweep_mode = "fix_rGL"
+static_cases = []
+static_width = 2.0
+static_height = 1.0
+static_crack_tip_x = 1.0
+static_local_half_span = None
+static_parent_dir = None
+static_parent_label = None
+static_case_label = None
+static_case_hG = None
+static_case_hL = None
+static_case_nhL = None
+static_case_nGx = None
+static_case_nGy = None
+
 islocal = 1
 isdynamic = 1
 
@@ -170,12 +189,15 @@ elemVis = None
 nelemVis = None
 nodeG = None
 elemG = None
+elemGI = None
 
 # ===================================================================
 # Mesh: Local
 # ===================================================================
 nodeL = None
 elemL = None
+nodeLx = None
+nodeLy = None
 
 # ===================================================================
 # meshset outputs

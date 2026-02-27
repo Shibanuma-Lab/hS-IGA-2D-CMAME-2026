@@ -37,6 +37,9 @@ def savedata(step):
     _write_step_result_dat()
 
     # ---- VTU export ----
+    if int(getattr(st, "save_vtu", 1)) != 1:
+        return
+
     if int(st.islocal) == 0:
         stress_vis = np.vstack([st.sigmaXX, st.sigmaYY, st.sigmaXY]).T
         stressVTU = stress_vis
@@ -133,7 +136,11 @@ def _write_elem_dat(path, elems, title):
 
 def _write_vtu(step, points, cells, disp, stress, islocal, offsets, types):
     """Write VTU file for the current step."""
-    vtu_dir = st.pvd / "vtu"
+    if getattr(st, "analysis_mode", "dynamic") == "static":
+        vtu_dir = Path(st.dirname)
+    else:
+        vtu_dir = st.pvd / "vtu"
+        vtu_dir.mkdir(parents=True, exist_ok=True)
     vtu_file = vtu_dir / f"step_{step:05d}.vtu"
     
     npts = len(points)

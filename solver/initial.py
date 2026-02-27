@@ -15,7 +15,12 @@ def initial(step):
     * step ≥ aL + 1      → copy + re-initialise local DOFs with a
                             2-DOF shift pattern
     """
-    if step == 0:
+    if getattr(st, "analysis_mode", "dynamic") == "static" or int(getattr(st, "isdynamic", 1)) == 0:
+        st.disini = np.zeros(st.neq)
+        st.Vini   = np.zeros(st.neq)
+        st.Aini   = np.zeros(st.neq)
+
+    elif step == 0:
         st.disini = np.zeros(st.neq)
         st.Vini   = np.zeros(st.neq)
         st.Aini   = np.zeros(st.neq)

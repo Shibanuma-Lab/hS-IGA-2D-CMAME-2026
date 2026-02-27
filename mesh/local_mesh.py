@@ -15,22 +15,42 @@ def makemesh(step):
 
     np.set_printoptions(precision=15, suppress=True)
 
+    is_static = getattr(st, "analysis_mode", "dynamic") == "static"
+
     # --- global mesh ---
-    if (step == 0) or (st.REstart == 1 and step == st.stepini):
+    if is_static or (step == 0) or (st.REstart == 1 and step == st.stepini):
         makeGlobalMesh(st.hG, st.nPtsX, st.nPtsY)
         st.nodeG = st.controlPts
         st.elemG = [conn[:] for conn in st.element]
 
     # --- local mesh (S-version) ---
     if int(st.islocal) == 1:
-        moveL = 0 if (step <= st.aL) else (step - st.aL)
+        if is_static:
+            st.nodeLx = (
+                float(st.static_crack_tip_x)
+                + np.concatenate(
+                    [
+                        np.linspace(-float(st.static_local_half_span), 0.0, int(st.aL) + 1),
+                        np.linspace(0.0, float(st.static_local_half_span), int(st.lL) + 1)[1:],
+                    ]
+                ).astype(float)
+            )
+            st.nodeLy = (
+                (float(st.static_local_half_span) / float(max(int(st.HL), 1)))
+                * np.arange(int(st.HL) + 1, dtype=float)
+            )
+            st.nodeL = np.array([[x, y] for y in st.nodeLy for x in st.nodeLx], dtype=float)
+        else:
+            moveL = 0 if (step <= st.aL) else (step - st.aL)
 
-        yy = np.arange(0, int(st.HL) + 1, dtype=float)
-        xx = np.arange(0, int(st.nLr) + 1, dtype=float)
-        st.nodeL = np.array(
-            [[(x + moveL) * st.hL, y * st.hL] for y in yy for x in xx],
-            dtype=float,
-        )
+            yy = np.arange(0, int(st.HL) + 1, dtype=float)
+            xx = np.arange(0, int(st.nLr) + 1, dtype=float)
+            st.nodeL = np.array(
+                [[(x + moveL) * st.hL, y * st.hL] for y in yy for x in xx],
+                dtype=float,
+            )
+            st.nodeLx = np.arange(0, int(st.nLr) + 1, dtype=float) * float(st.hL)
+            st.nodeLy = np.arange(0, int(st.HL) + 1, dtype=float) * float(st.hL)
 
         nx = int(st.nLr)
         ny = int(st.HL)

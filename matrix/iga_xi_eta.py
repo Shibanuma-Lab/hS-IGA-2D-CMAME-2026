@@ -112,7 +112,7 @@ def IGAgemoGetXiEta(
         if step_size < tolS:
             break
 
-    if it > 50 or nrmFr > 1e-6:
+    if debug and (it > 50 or nrmFr > 1e-6):
         print(f"[DIAG] IGAgemoGetXiEta: iter={it}, nrmFr={nrmFr:.2e}, e={e}")
 
     return out
