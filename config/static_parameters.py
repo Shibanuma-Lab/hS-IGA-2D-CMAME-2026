@@ -48,6 +48,33 @@ def _make_case(nhL: int, rGL: int | float):
     }
 
 
+def _dedupe_cases_by_hg(cases, target_rgl: float):
+    """
+    Keep one case per unique global mesh size (nGx -> unique hG for fixed width).
+
+    For duplicated ``nGx``, keep the case whose actual ``hG / hL`` is closest to
+    the target ratio.
+    """
+    best_by_nGx = {}
+    for case in cases:
+        key = int(case["nGx"])
+        ratio_err = abs((float(case["hG"]) / float(case["hL"])) - float(target_rgl))
+        if key not in best_by_nGx:
+            best_by_nGx[key] = (ratio_err, case)
+            continue
+
+        prev_err, prev_case = best_by_nGx[key]
+        if ratio_err < prev_err:
+            best_by_nGx[key] = (ratio_err, case)
+        elif ratio_err == prev_err and int(case["nhL"]) < int(prev_case["nhL"]):
+            best_by_nGx[key] = (ratio_err, case)
+
+    # Preserve a stable sweep order from coarse -> fine local mesh.
+    out = [v[1] for v in best_by_nGx.values()]
+    out.sort(key=lambda c: int(c["nhL"]))
+    return out
+
+
 def load_static_parameters(sweep_mode: str = "fix_rGL"):
     """Populate ``core.state`` for the static crack benchmark."""
 
@@ -93,14 +120,15 @@ def load_static_parameters(sweep_mode: str = "fix_rGL"):
     st.jintegral_compare_fem = 0
     st.interpolator_type = "bilinear"
     # Number of worker processes for static case sweep. Use 1 for serial run.
-    st.static_parallel_jobs = 8
+    st.static_parallel_jobs = 4
 
     st.jobstart = 1
 
     if st.static_sweep_mode == "fix_rGL":
         fixed_rGL = 6
         st.static_parent_label = f"fix_rGL_{fixed_rGL:g}"
-        st.static_cases = [_make_case(nhL=nhL, rGL=fixed_rGL) for nhL in range(20, 10000, 4)]
+        raw_cases = [_make_case(nhL=nhL, rGL=fixed_rGL) for nhL in range(20, 10000, 4)]
+        st.static_cases = _dedupe_cases_by_hg(raw_cases, target_rgl=fixed_rGL)
     elif st.static_sweep_mode == "fix_hG":
         fixed_nG = 81
         nGx, nGy = _adjust_global_divisions(fixed_nG)
