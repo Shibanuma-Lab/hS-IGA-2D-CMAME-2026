@@ -124,6 +124,7 @@ static_case_hL = None
 static_case_nhL = None
 static_case_nGx = None
 static_case_nGy = None
+static_parallel_jobs = 1
 
 islocal = 1
 isdynamic = 1

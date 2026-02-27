@@ -7,7 +7,9 @@ from the original single-file script.
 """
 
 from datetime import datetime
+import os
 import csv
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
 # ---- Shared state (replaces all 'global' declarations) ----
@@ -167,6 +169,38 @@ def run_jintegral_postprocess():
     print(f"[JINT] Compare done. {len(comp_rows)} common steps written to: {cmp_out}")
 
 
+def _run_single_static_job(job: int, sweep_mode: str):
+    """Run one static sweep case in an isolated process."""
+    load_static_parameters(sweep_mode=sweep_mode)
+    Alldata()
+    jobset(int(job))
+
+    for step in range(int(st.stepini), int(st.stepall) + 1):
+        print("--------------------------------------------------")
+        print("step:", step)
+        print(f"Job{job}_Step{step}: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
+        stepset(step)
+        makemesh(step)
+
+        if int(st.meshonly) != 1:
+            meshset()
+            makematrix()
+            boundary(step)
+            initial(step)
+            write_debug_info(step)
+            solve(step)
+            getresult()
+            if int(st.islocal) == 1:
+                finduGuL()
+            if int(st.issave) == 1:
+                savedata(step)
+
+    metrics = compute_static_metrics()
+    write_case_metric_files(st.dirname, metrics)
+    return {"job": int(job), "metrics": metrics}
+
+
 def execution():
     """
     Main simulation loop.
@@ -190,6 +224,54 @@ def execution():
             calnos()
     """
     static_metrics_rows = []
+
+    if (
+        getattr(st, "analysis_mode", "dynamic") == "static"
+        and int(getattr(st, "static_parallel_jobs", 1)) > 1
+    ):
+        jobs = list(range(int(st.jobstart), int(st.jobend) + 1))
+        cpu_cap = os.cpu_count() or 1
+        worker_req = int(getattr(st, "static_parallel_jobs", 1))
+        max_workers = max(1, min(worker_req, len(jobs), cpu_cap))
+
+        if max_workers > 1 and len(jobs) > 1:
+            static_parent_dir = (
+                Path(__file__).resolve().parent
+                / "static_results"
+                / str(st.static_parent_label)
+            )
+            static_parent_dir.mkdir(parents=True, exist_ok=True)
+
+            print(
+                f"[STATIC] Parallel sweep enabled: workers={max_workers}, jobs={len(jobs)}"
+            )
+            completed = {}
+            try:
+                with ProcessPoolExecutor(max_workers=max_workers) as executor:
+                    futures = {
+                        executor.submit(_run_single_static_job, job, str(st.static_sweep_mode)): job
+                        for job in jobs
+                    }
+                    for future in as_completed(futures):
+                        job = futures[future]
+                        try:
+                            payload = future.result()
+                        except Exception as exc:
+                            raise RuntimeError(f"Static job {job} failed") from exc
+
+                        completed[int(payload["job"])] = payload["metrics"]
+                        ordered_rows = [completed[j] for j in sorted(completed)]
+                        write_static_summary_files(static_parent_dir, ordered_rows)
+                        print(
+                            f"[STATIC] Completed job {job} "
+                            f"({len(completed)}/{len(jobs)})"
+                        )
+                return
+            except PermissionError:
+                print(
+                    "[STATIC] Parallel sweep is unavailable in the current environment. "
+                    "Fallback to serial execution."
+                )
 
     for job in range(int(st.jobstart), int(st.jobend) + 1):
         Alldata()

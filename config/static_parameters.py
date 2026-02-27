@@ -92,13 +92,15 @@ def load_static_parameters(sweep_mode: str = "fix_rGL"):
     st.calc_jintegral = 0
     st.jintegral_compare_fem = 0
     st.interpolator_type = "bilinear"
+    # Number of worker processes for static case sweep. Use 1 for serial run.
+    st.static_parallel_jobs = 8
 
     st.jobstart = 1
 
     if st.static_sweep_mode == "fix_rGL":
-        fixed_rGL = 2
+        fixed_rGL = 6
         st.static_parent_label = f"fix_rGL_{fixed_rGL:g}"
-        st.static_cases = [_make_case(nhL=nhL, rGL=fixed_rGL) for nhL in range(31, 160, 3)]
+        st.static_cases = [_make_case(nhL=nhL, rGL=fixed_rGL) for nhL in range(20, 10000, 4)]
     elif st.static_sweep_mode == "fix_hG":
         fixed_nG = 81
         nGx, nGy = _adjust_global_divisions(fixed_nG)
