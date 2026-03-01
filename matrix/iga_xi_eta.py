@@ -38,7 +38,11 @@ def IGAgemoGetXiEta(
         xiE = st.elRangeU[idu - 1]
         etaE = st.elRangeV[idv - 1]
 
-    out = np.array(init, dtype=float).copy()
+    out = np.asarray(init, dtype=float).reshape(-1).copy()
+    if out.size < 2 or not np.all(np.isfinite(out[:2])):
+        out = np.array([0.0, 0.0], dtype=float)
+    else:
+        out = out[:2]
     pos = np.asarray(pos, dtype=float)
 
     eps_p = 1e-11

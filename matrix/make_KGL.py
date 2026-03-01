@@ -567,25 +567,37 @@ def makeKGL6():
         for eL in range(st.nemLm)
     ]
 
-    elLhelGe = [
-        [[elLelGem[eL][XiEtaGm[eL][h][i][1] - 1] for i in range(ngpGL2)]
-         for h in range(nemLh)]
-        for eL in range(st.nemLm)
-    ]
+    elLhelGe = []
+    for eL in range(st.nemLm):
+        by_sub = []
+        nmap = len(elLelGem[eL])
+        for h in range(nemLh):
+            by_gp = []
+            for i in range(ngpGL2):
+                hit_idx = int(XiEtaGm[eL][h][i][1])
+                if 1 <= hit_idx <= nmap:
+                    by_gp.append(int(elLelGem[eL][hit_idx - 1]))
+                else:
+                    by_gp.append(0)
+            by_sub.append(by_gp)
+        elLhelGe.append(by_sub)
 
     IGAXiEtam = []
     for eLm in range(st.nemLm):
-        row = []
-        for i in range(ngpGL2):
-            # Skip if this integration point doesn't map to any global element
-            if len(XiEtaGm[eLm][0][i][0]) == 0:
-                row.append(None)
-            else:
-                eG_id = emGe_arr[elLhelGe[eLm][0][i] - 1] - 1
+        by_sub = []
+        for h in range(nemLh):
+            by_gp = []
+            for i in range(ngpGL2):
+                ge_lid = int(elLhelGe[eLm][h][i])
+                init = XiEtaGm[eLm][h][i][0]
+                # Skip if this integration point doesn't map to any global element
+                if ge_lid <= 0 or len(init) == 0:
+                    by_gp.append(None)
+                    continue
+                eG_id = emGe_arr[ge_lid - 1] - 1
                 xiE, etaE, cp_elem, _ = get_ge_data(eG_id)
-                pos = phyposm[eLm, 0, i, :]
-                init = XiEtaGm[eLm][0][i][0]
-                row.append(
+                pos = phyposm[eLm, h, i, :]
+                by_gp.append(
                     IGAgemoGetXiEta(
                         eG_id,
                         pos,
@@ -595,7 +607,8 @@ def makeKGL6():
                         coord=cp_elem,
                     )
                 )
-        IGAXiEtam.append(row)
+            by_sub.append(by_gp)
+        IGAXiEtam.append(by_sub)
 
     for eLm in range(1, st.nemLm + 1):
         local_nodes = elemL_arr[int(st.emLm[eLm - 1])]
@@ -608,7 +621,11 @@ def makeKGL6():
             func = np.zeros((2, ncol), dtype=float) if assemble_mass else None
             for j in range(1, ngpGL2 + 1):
                 # Skip integration points that don't map to global elements
-                if IGAXiEtam[eLm - 1][j - 1] is None:
+                if IGAXiEtam[eLm - 1][eLh - 1][j - 1] is None:
+                    continue
+
+                ge_lid = int(elLhelGe[eLm - 1][eLh - 1][j - 1])
+                if ge_lid <= 0:
                     continue
 
                 xi_eta_l = XiEtaLm[eLm - 1][eLh - 1][j - 1]
@@ -621,10 +638,10 @@ def makeKGL6():
                 if assemble_mass:
                     NLSm = enlarge2(shp(xi_eta_l))
 
-                elem_id = emGe_arr[elLhelGe[eLm - 1][eLh - 1][j - 1] - 1] - 1
+                elem_id = emGe_arr[ge_lid - 1] - 1
                 xiE, etaE, cp_elem, iGem = get_ge_data(elem_id)
 
-                xi_p, eta_p = IGAXiEtam[eLm - 1][j - 1]
+                xi_p, eta_p = IGAXiEtam[eLm - 1][eLh - 1][j - 1]
                 Xi = parent2ParametricSpace(xiE, xi_p)
                 Eta = parent2ParametricSpace(etaE, eta_p)
 
