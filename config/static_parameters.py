@@ -121,6 +121,14 @@ def load_static_parameters(sweep_mode: str = "fix_rGL"):
     st.interpolator_type = "bilinear"
     # Number of worker processes for static case sweep. Use 1 for serial run.
     st.static_parallel_jobs = 1
+    # Memory control: use sparse matrices and skip mass matrices for static solve.
+    st.static_use_sparse = 1
+    st.static_skip_mass = 1
+    st.static_linear_solver = "auto"   # "auto" | "direct" | "cg"
+    st.static_iter_tol = 1.0e-10
+    st.static_iter_maxiter = 50000
+    st.static_iter_switch_dof = 120000
+    st.static_release_memory_each_job = 1
 
     st.jobstart = 1
 

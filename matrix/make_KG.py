@@ -3,6 +3,7 @@ makeKG – assemble global IGA stiffness and mass matrices.
 """
 
 import numpy as np
+import scipy.sparse as sp
 
 import core.state as st
 from utils.shape_functions import GP, GW
@@ -18,8 +19,21 @@ def makeKG():
     st.nCtrPts = st.nPtsX * st.nPtsY
     st.neqG = st.nCtrPts * st.ndof
 
-    stiff = np.zeros((st.neqG, st.neqG), dtype=np.float64)
-    mass = np.zeros((st.neqG, st.neqG), dtype=np.float64)
+    is_static_case = (
+        getattr(st, "analysis_mode", "dynamic") == "static"
+        or int(getattr(st, "isdynamic", 1)) == 0
+    )
+    use_sparse_static = is_static_case and int(getattr(st, "static_use_sparse", 1)) == 1
+    assemble_mass = not (
+        is_static_case and int(getattr(st, "static_skip_mass", 1)) == 1
+    )
+
+    if use_sparse_static:
+        stiff = sp.lil_matrix((st.neqG, st.neqG), dtype=np.float64)
+        mass = sp.lil_matrix((st.neqG, st.neqG), dtype=np.float64) if assemble_mass else None
+    else:
+        stiff = np.zeros((st.neqG, st.neqG), dtype=np.float64)
+        mass = np.zeros((st.neqG, st.neqG), dtype=np.float64) if assemble_mass else None
 
     Q = [(gp2, gp1) for gp1 in GP(st.nGPs) for gp2 in GP(st.nGPs)]
     W = [gw2 * gw1 for gw1 in GW(st.nGPs) for gw2 in GW(st.nGPs)]
@@ -36,11 +50,15 @@ def makeKG():
         ncpelem = len(sctr)
 
         localStiff = np.zeros((st.ndof * ncpelem, st.ndof * ncpelem), dtype=np.float64)
-        localMass = np.zeros((st.ndof * ncpelem, st.ndof * ncpelem), dtype=np.float64)
+        localMass = (
+            np.zeros((st.ndof * ncpelem, st.ndof * ncpelem), dtype=np.float64)
+            if assemble_mass
+            else None
+        )
         scrtx = np.zeros((st.ndof * ncpelem,), dtype=int)
 
         B = np.zeros((3, st.ndof * ncpelem), dtype=np.float64)
-        func = np.zeros((2, st.ndof * ncpelem), dtype=np.float64)
+        func = np.zeros((2, st.ndof * ncpelem), dtype=np.float64) if assemble_mass else None
 
         for gp, (pt, wt) in enumerate(zip(Q, W)):
             Xi = parent2ParametricSpace(xiE, pt[0])
@@ -62,7 +80,8 @@ def makeKG():
             dN = invJxu @ dNbf
 
             B.fill(0.0)
-            func.fill(0.0)
+            if assemble_mass:
+                func.fill(0.0)
 
             for nid in range(1, ncpelem + 1):
                 globnum = sctr[nid - 1]
@@ -80,16 +99,33 @@ def makeKG():
                 B[2, j1] = dNdy
                 B[2, j2] = dNdx
 
-                func[0, j1] = NN[nid - 1]
-                func[1, j2] = NN[nid - 1]
+                if assemble_mass:
+                    func[0, j1] = NN[nid - 1]
+                    func[1, j2] = NN[nid - 1]
 
             detJ = np.linalg.det(Jxu)
             localStiff += (B.T @ st.de @ B) * detJ * detJuxi * wt
-            localMass += st.thi * (func.T @ st.dRho @ func) * detJ * detJuxi * wt
+            if assemble_mass:
+                localMass += st.thi * (func.T @ st.dRho @ func) * detJ * detJuxi * wt
 
         I = np.array(scrtx, dtype=int) - 1
-        stiff[np.ix_(I, I)] += localStiff
-        mass[np.ix_(I, I)] += localMass
+        if use_sparse_static:
+            stiff[np.ix_(I, I)] += localStiff
+            if assemble_mass:
+                mass[np.ix_(I, I)] += localMass
+        else:
+            stiff[np.ix_(I, I)] += localStiff
+            if assemble_mass:
+                mass[np.ix_(I, I)] += localMass
 
-    st.KG = stiff
-    st.MG = mass
+    if use_sparse_static:
+        st.KG = stiff.tocsr()
+        st.KG.eliminate_zeros()
+        if assemble_mass:
+            st.MG = mass.tocsr()
+            st.MG.eliminate_zeros()
+        else:
+            st.MG = None
+    else:
+        st.KG = stiff
+        st.MG = mass

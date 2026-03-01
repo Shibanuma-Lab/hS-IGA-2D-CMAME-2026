@@ -9,6 +9,7 @@ from the original single-file script.
 from datetime import datetime
 import os
 import csv
+import gc
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
@@ -311,6 +312,16 @@ def execution():
             write_case_metric_files(st.dirname, metrics)
             static_metrics_rows.append(metrics)
             write_static_summary_files(st.static_parent_dir, static_metrics_rows)
+            if int(getattr(st, "static_release_memory_each_job", 1)) == 1:
+                for name in (
+                    "KG", "KL", "KGL", "MG", "ML", "MGL",
+                    "dis", "V", "A", "force", "RF", "RFM",
+                    "disini", "Vini", "Aini",
+                    "disG2D", "disL2D", "disLG2D", "disGL2D", "disVis",
+                ):
+                    if hasattr(st, name):
+                        setattr(st, name, None)
+                gc.collect()
         else:
             calnos()
             run_jintegral_postprocess()

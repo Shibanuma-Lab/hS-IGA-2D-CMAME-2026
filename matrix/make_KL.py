@@ -3,6 +3,7 @@ makeKL – assemble local Q4 stiffness and mass matrices.
 """
 
 import numpy as np
+import scipy.sparse as sp
 
 import core.state as st
 from utils.shape_functions import Dshp, enlarge, enlarge2
@@ -11,8 +12,21 @@ from utils.shape_functions import Dshp, enlarge, enlarge2
 def makeKL():
     """Assemble local stiffness ``st.KL`` and mass ``st.ML``."""
 
-    st.KL = np.zeros((st.neqL, st.neqL), dtype=float)
-    st.ML = np.zeros((st.neqL, st.neqL), dtype=float)
+    is_static_case = (
+        getattr(st, "analysis_mode", "dynamic") == "static"
+        or int(getattr(st, "isdynamic", 1)) == 0
+    )
+    use_sparse_static = is_static_case and int(getattr(st, "static_use_sparse", 1)) == 1
+    assemble_mass = not (
+        is_static_case and int(getattr(st, "static_skip_mass", 1)) == 1
+    )
+
+    if use_sparse_static:
+        st.KL = sp.lil_matrix((st.neqL, st.neqL), dtype=float)
+        st.ML = sp.lil_matrix((st.neqL, st.neqL), dtype=float) if assemble_mass else None
+    else:
+        st.KL = np.zeros((st.neqL, st.neqL), dtype=float)
+        st.ML = np.zeros((st.neqL, st.neqL), dtype=float) if assemble_mass else None
 
     def calJL(e, xi_eta):
         return Dshp(xi_eta) @ st.enodeL[e - 1]
@@ -59,6 +73,12 @@ def makeKL():
         idx = iL[eL]
         st.KL[np.ix_(idx, idx)] += KLe[eL]
 
+    if not assemble_mass:
+        if use_sparse_static:
+            st.KL = st.KL.tocsr()
+            st.KL.eliminate_zeros()
+        return
+
     # Shape-function matrix for mass
     NL = np.empty(ngp2, dtype=object)
     for gp in range(ngp2):
@@ -76,3 +96,9 @@ def makeKL():
     for eL in range(st.nemL):
         idx = iL[eL]
         st.ML[np.ix_(idx, idx)] += MLe[eL]
+
+    if use_sparse_static:
+        st.KL = st.KL.tocsr()
+        st.KL.eliminate_zeros()
+        st.ML = st.ML.tocsr()
+        st.ML.eliminate_zeros()

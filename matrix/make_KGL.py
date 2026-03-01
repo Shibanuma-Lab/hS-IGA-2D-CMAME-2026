@@ -5,6 +5,7 @@ Contains:  makeKGL(), makeKGL1(), makeKGL3(), makeKGL6()
 """
 
 import numpy as np
+import scipy.sparse as sp
 from scipy.optimize import fsolve
 
 import core.state as st
@@ -32,9 +33,19 @@ def makeKGL():
     try:
         current_step = st.step
         if current_step is not None and current_step >= 0 and (current_step % 10 == 0 or current_step > 95):
-            kgl_nnz = np.count_nonzero(st.KGL)
-            kgl_max = np.max(np.abs(st.KGL))
-            mgl_nnz = np.count_nonzero(st.MGL)
+            if sp.issparse(st.KGL):
+                kgl_nnz = int(st.KGL.nnz)
+                kgl_max = float(np.max(np.abs(st.KGL.data))) if st.KGL.nnz > 0 else 0.0
+            else:
+                kgl_nnz = int(np.count_nonzero(st.KGL))
+                kgl_max = float(np.max(np.abs(st.KGL)))
+
+            if st.MGL is None:
+                mgl_nnz = 0
+            elif sp.issparse(st.MGL):
+                mgl_nnz = int(st.MGL.nnz)
+            else:
+                mgl_nnz = int(np.count_nonzero(st.MGL))
             print(f"[DIAG] Step {current_step} makeKGL: KGL_nnz={kgl_nnz}, max|KGL|={kgl_max:.2e}, MGL_nnz={mgl_nnz}")
     except Exception:
         pass
@@ -230,15 +241,28 @@ def makeKGL3():
 # ======================================================================
 def makeKGL6():
 
-    st.KGL = np.zeros((st.neqG, st.neqL), dtype=float)
-    st.MGL = np.zeros((st.neqG, st.neqL), dtype=float)
+    is_static_case = (
+        getattr(st, "analysis_mode", "dynamic") == "static"
+        or int(getattr(st, "isdynamic", 1)) == 0
+    )
+    use_sparse_static = is_static_case and int(getattr(st, "static_use_sparse", 1)) == 1
+    assemble_mass = not (
+        is_static_case and int(getattr(st, "static_skip_mass", 1)) == 1
+    )
+
+    if use_sparse_static:
+        st.KGL = sp.lil_matrix((st.neqG, st.neqL), dtype=float)
+        st.MGL = sp.lil_matrix((st.neqG, st.neqL), dtype=float) if assemble_mass else None
+    else:
+        st.KGL = np.zeros((st.neqG, st.neqL), dtype=float)
+        st.MGL = np.zeros((st.neqG, st.neqL), dtype=float) if assemble_mass else None
 
     ngpGL2 = st.ngpGL ** 2
     tol_map = 1.0e-12
 
     nnGL = np.asarray([np.asarray(v, dtype=float).ravel() for v in st.nnGL], dtype=float)
     dshpGL = np.asarray([Dshp(pt) for pt in st.xi_etaGL], dtype=float)
-    nlsGL = np.asarray([enlarge2(shp(pt)) for pt in st.xi_etaGL], dtype=float)
+    nlsGL = np.asarray([enlarge2(shp(pt)) for pt in st.xi_etaGL], dtype=float) if assemble_mass else None
     weightL = np.asarray(st.weightL, dtype=float)
     weightGL = np.asarray(st.weightGL, dtype=float)
 
@@ -373,9 +397,9 @@ def makeKGL6():
         xiE, etaE, cp_elem, iGem = get_ge_data(iga_id)
 
         KGLes = np.zeros((ncol, 8), dtype=float)
-        MGLes = np.zeros((ncol, 8), dtype=float)
+        MGLes = np.zeros((ncol, 8), dtype=float) if assemble_mass else None
         B = np.zeros((3, ncol), dtype=float)
-        func = np.zeros((2, ncol), dtype=float)
+        func = np.zeros((2, ncol), dtype=float) if assemble_mass else None
         enodeLs_e = st.enodeLs[eLs]
 
         for j in range(ngpGL2):
@@ -383,7 +407,8 @@ def makeKGL6():
             JLs = dshp_j @ enodeLs_e
             invJLs = np.linalg.inv(JLs)
             BLSs = enlarge(invJLs @ dshp_j)
-            NLSs = nlsGL[j]
+            if assemble_mass:
+                NLSs = nlsGL[j]
 
             Xi_p, Eta_p = IGAXiEtas[eLs][j]
             Xi = parent2ParametricSpace(xiE, Xi_p)
@@ -400,26 +425,35 @@ def makeKGL6():
             dN = np.linalg.inv(Jxu) @ dNbf
 
             B.fill(0.0)
-            func.fill(0.0)
             B[0, cols_u] = dN[0, :]
             B[1, cols_v] = dN[1, :]
             B[2, cols_u] = dN[1, :]
             B[2, cols_v] = dN[0, :]
-            func[0, cols_u] = NN
-            func[1, cols_v] = NN
+            if assemble_mass:
+                func.fill(0.0)
+                func[0, cols_u] = NN
+                func[1, cols_v] = NN
 
             jw = np.linalg.det(JLs) * weightL[j] * thi
             KGLes += (B.T @ de @ BLSs) * jw
-            MGLes += (func.T @ dRho @ NLSs) * jw
+            if assemble_mass:
+                MGLes += (func.T @ dRho @ NLSs) * jw
 
         iLes = iLes_ls[eLs]
         st.KGL[np.ix_(iGem, iLes)] += KGLes
-        st.MGL[np.ix_(iGem, iLes)] += MGLes
+        if assemble_mass:
+            st.MGL[np.ix_(iGem, iLes)] += MGLes
 
     # ------------------------------------------------------------------
     #  --- emLm: local elements spanning multiple s-global elements ---
     # ------------------------------------------------------------------
     if st.nemLm == 0:
+        if use_sparse_static:
+            st.KGL = st.KGL.tocsr()
+            st.KGL.eliminate_zeros()
+            if assemble_mass:
+                st.MGL = st.MGL.tocsr()
+                st.MGL.eliminate_zeros()
         return
 
     enodeLm = np.asarray([st.enodeL[idx] for idx in st.emLm], dtype=float)
@@ -571,7 +605,7 @@ def makeKGL6():
 
         for eLh in range(1, nemLh + 1):
             B = np.zeros((3, ncol), dtype=float)
-            func = np.zeros((2, ncol), dtype=float)
+            func = np.zeros((2, ncol), dtype=float) if assemble_mass else None
             for j in range(1, ngpGL2 + 1):
                 # Skip integration points that don't map to global elements
                 if IGAXiEtam[eLm - 1][j - 1] is None:
@@ -584,7 +618,8 @@ def makeKGL6():
 
                 BLSbm = np.linalg.inv(JLm) @ dshp_l
                 BLSm = enlarge(BLSbm)
-                NLSm = enlarge2(shp(xi_eta_l))
+                if assemble_mass:
+                    NLSm = enlarge2(shp(xi_eta_l))
 
                 elem_id = emGe_arr[elLhelGe[eLm - 1][eLh - 1][j - 1] - 1] - 1
                 xiE, etaE, cp_elem, iGem = get_ge_data(elem_id)
@@ -604,17 +639,27 @@ def makeKGL6():
                 dN = np.linalg.inv(Jxu) @ dNbf
 
                 B.fill(0.0)
-                func.fill(0.0)
                 B[0, cols_u] = dN[0, :]
                 B[1, cols_v] = dN[1, :]
                 B[2, cols_u] = dN[1, :]
                 B[2, cols_v] = dN[0, :]
-                func[0, cols_u] = NN
-                func[1, cols_v] = NN
+                if assemble_mass:
+                    func.fill(0.0)
+                    func[0, cols_u] = NN
+                    func[1, cols_v] = NN
 
                 jw = np.linalg.det(JLhm) * weightGL[j - 1] * thi
                 KGLhe = (B.T @ de @ BLSm) * jw
-                MGLhe = (func.T @ dRho @ NLSm) * jw
+                if assemble_mass:
+                    MGLhe = (func.T @ dRho @ NLSm) * jw
 
                 st.KGL[np.ix_(iGem, iLem)] += KGLhe
-                st.MGL[np.ix_(iGem, iLem)] += MGLhe
+                if assemble_mass:
+                    st.MGL[np.ix_(iGem, iLem)] += MGLhe
+
+    if use_sparse_static:
+        st.KGL = st.KGL.tocsr()
+        st.KGL.eliminate_zeros()
+        if assemble_mass:
+            st.MGL = st.MGL.tocsr()
+            st.MGL.eliminate_zeros()
