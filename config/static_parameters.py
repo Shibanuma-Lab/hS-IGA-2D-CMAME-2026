@@ -11,6 +11,47 @@ import numpy as np
 import core.state as st
 
 
+def _estimate_case_dof(case: dict, p: int, q: int, ndof: int = 2) -> int:
+    """
+    Estimate total DOF for one static case without building the full meshes.
+
+    Matches runtime definition:
+      dof = 2 * (len(nodeG) + len(nodeL))
+      len(nodeG) = nPtsX * nPtsY,  nPtsX=nGx+p, nPtsY=nGy+q
+      len(nodeL) = (nLr+1) * (HL+1), nLr=aL+lL
+    """
+    nGx = int(case["nGx"])
+    nGy = int(case["nGy"])
+    aL = int(case["aL"])
+    lL = int(case["lL"])
+    HL = int(case["HL"])
+
+    nPtsX = nGx + int(p)
+    nPtsY = nGy + int(q)
+    n_global_nodes = nPtsX * nPtsY
+
+    nLr = aL + lL
+    n_local_nodes = (nLr + 1) * (HL + 1)
+
+    return int(ndof) * int(n_global_nodes + n_local_nodes)
+
+
+def _truncate_cases_by_dof(cases, max_dof: int, p: int, q: int, ndof: int = 2):
+    """
+    Keep cases in sweep order until estimated DOF exceeds ``max_dof``.
+    The first exceeding case is not included.
+    """
+    kept = []
+    for case in cases:
+        dof_est = _estimate_case_dof(case, p=p, q=q, ndof=ndof)
+        case_with_dof = dict(case)
+        case_with_dof["dof_estimate"] = int(dof_est)
+        if dof_est > int(max_dof):
+            break
+        kept.append(case_with_dof)
+    return kept
+
+
 def _adjust_global_divisions(nGxbf: int):
     """Match the Mathematica static-mesh rule: odd ``nGx`` and ``nGy=(nGx-1)/2``."""
     nGxbf = int(nGxbf)
@@ -121,6 +162,8 @@ def load_static_parameters(sweep_mode: str = "fix_rGL"):
     st.interpolator_type = "bilinear"
     # Number of worker processes for static case sweep. Use 1 for serial run.
     st.static_parallel_jobs = 1
+    # Stop generating further sweep cases once estimated DOF exceeds this cap.
+    st.static_max_dof = int(1.0e5)
     # Memory control: use sparse matrices and skip mass matrices for static solve.
     st.static_use_sparse = 1
     st.static_skip_mass = 1
@@ -136,7 +179,10 @@ def load_static_parameters(sweep_mode: str = "fix_rGL"):
         fixed_rGL = 6
         st.static_parent_label = f"fix_rGL_{fixed_rGL:g}"
         raw_cases = [_make_case(nhL=nhL, rGL=fixed_rGL) for nhL in range(20, 10000, 4)]
-        st.static_cases = _dedupe_cases_by_hg(raw_cases, target_rgl=fixed_rGL)
+        deduped = _dedupe_cases_by_hg(raw_cases, target_rgl=fixed_rGL)
+        st.static_cases = _truncate_cases_by_dof(
+            deduped, max_dof=st.static_max_dof, p=st.p, q=st.q, ndof=2
+        )
     elif st.static_sweep_mode == "fix_hG":
         fixed_nG = 81
         nGx, nGy = _adjust_global_divisions(fixed_nG)
@@ -150,12 +196,17 @@ def load_static_parameters(sweep_mode: str = "fix_rGL"):
             case["hG"] = float(hG_fixed)
             case["rGL"] = case["hG"] / case["hL"]
             cases.append(case)
-        st.static_cases = cases
+        st.static_cases = _truncate_cases_by_dof(
+            cases, max_dof=st.static_max_dof, p=st.p, q=st.q, ndof=2
+        )
     elif st.static_sweep_mode == "fix_hL":
         fixed_nhL = 20
         hL_fixed = 1.0 / float(fixed_nhL)
         st.static_parent_label = f"fix_hL_{hL_fixed:.10g}"
-        st.static_cases = [_make_case(nhL=fixed_nhL, rGL=rGL) for rGL in range(2, 20)]
+        raw_cases = [_make_case(nhL=fixed_nhL, rGL=rGL) for rGL in range(2, 20)]
+        st.static_cases = _truncate_cases_by_dof(
+            raw_cases, max_dof=st.static_max_dof, p=st.p, q=st.q, ndof=2
+        )
     else:
         raise ValueError(
             f"Unsupported static sweep mode: {st.static_sweep_mode}. "

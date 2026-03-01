@@ -125,6 +125,7 @@ static_case_nhL = None
 static_case_nGx = None
 static_case_nGy = None
 static_parallel_jobs = 1
+static_max_dof = int(1.0e5)
 static_use_sparse = 1
 static_skip_mass = 1
 static_linear_solver = "auto"
