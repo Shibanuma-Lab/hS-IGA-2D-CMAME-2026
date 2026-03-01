@@ -92,9 +92,7 @@ def jobset(job):
         st.static_case_nhL = int(case["nhL"])
         st.static_case_nGx = int(case["nGx"])
         st.static_case_nGy = int(case["nGy"])
-        st.static_case_label = (
-            f"hG_{_format_param_value(case['hG'])}_hL_{_format_param_value(case['hL'])}"
-        )
+        st.static_case_label = f"nGx_{int(case['nGx'])}_aL_{int(case['aL'])}"
 
         st.nPtsX = int(case["nGx"]) + int(st.p)
         st.nPtsY = int(case["nGy"]) + int(st.q)

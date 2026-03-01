@@ -60,6 +60,47 @@ def _adjust_global_divisions(nGxbf: int):
     return int(nGx), int(nGy)
 
 
+def _nGy_from_nGx_exact(nGx: int) -> int:
+    """
+    Exact global Y-division rule used in integrated static campaigns:
+    nGy = (nGx + 1) / 2 for odd nGx.
+    """
+    nGx = int(nGx)
+    if nGx % 2 == 0:
+        raise ValueError(f"nGx must be odd for exact campaign settings, got {nGx}")
+    return int((nGx + 1) // 2)
+
+
+def _make_case_with_counts(
+    *,
+    nhL: int,
+    nGx: int,
+    nGy: int,
+    aL: int,
+    lL: int,
+    HL: int,
+    rGL: float,
+):
+    """
+    Build one static case from explicit element counts.
+    """
+    width = float(st.static_width)
+    hL = 1.0 / float(int(nhL))
+    hG = width / float(int(nGx))
+    return {
+        "nhL": int(nhL),
+        "rGL": float(rGL),
+        "hL": float(hL),
+        "hG": float(hG),
+        "nGx": int(nGx),
+        "nGy": int(nGy),
+        "aL": int(aL),
+        "lL": int(lL),
+        "HL": int(HL),
+        "step": int(aL),
+    }
+
+
 def _make_case(nhL: int, rGL: int | float):
     stand_size = float(st.static_local_half_span)
     width = float(st.static_width)
@@ -178,18 +219,19 @@ def load_static_parameters(sweep_mode: str = "fix_rGL"):
     if st.static_sweep_mode == "fix_rGL":
         fixed_rGL = 6
         st.static_parent_label = f"fix_rGL_{fixed_rGL:g}"
-        raw_cases = [_make_case(nhL=nhL, rGL=fixed_rGL) for nhL in range(20, 10000, 4)]
+        raw_cases = [_make_case(nhL=nhL, rGL=fixed_rGL) for nhL in range(5, 10000, 4)]
         deduped = _dedupe_cases_by_hg(raw_cases, target_rgl=fixed_rGL)
         st.static_cases = _truncate_cases_by_dof(
             deduped, max_dof=st.static_max_dof, p=st.p, q=st.q, ndof=2
         )
     elif st.static_sweep_mode == "fix_hG":
         fixed_nG = 81
-        nGx, nGy = _adjust_global_divisions(fixed_nG)
+        nGx = int(fixed_nG)
+        nGy = _nGy_from_nGx_exact(nGx)
         hG_fixed = st.static_width / float(nGx)
         st.static_parent_label = f"fix_hG_{hG_fixed:.10g}"
         cases = []
-        for nhL in range(61, 160, 3):
+        for nhL in range(5, 10000, 4):
             case = _make_case(nhL=nhL, rGL=1.0)
             case["nGx"] = int(nGx)
             case["nGy"] = int(nGy)
@@ -200,10 +242,25 @@ def load_static_parameters(sweep_mode: str = "fix_rGL"):
             cases, max_dof=st.static_max_dof, p=st.p, q=st.q, ndof=2
         )
     elif st.static_sweep_mode == "fix_hL":
-        fixed_nhL = 20
-        hL_fixed = 1.0 / float(fixed_nhL)
+        fixed_nL = 20
+        fixed_nhL = int(fixed_nL)
+        fixed_half = int(fixed_nL // 2)
+        hL_fixed = 1.0 / float(fixed_nL)
         st.static_parent_label = f"fix_hL_{hL_fixed:.10g}"
-        raw_cases = [_make_case(nhL=fixed_nhL, rGL=rGL) for rGL in range(2, 20)]
+        raw_cases = []
+        for rGL in range(2, 30):
+            base = _make_case(nhL=fixed_nhL, rGL=rGL)
+            raw_cases.append(
+                _make_case_with_counts(
+                    nhL=fixed_nhL,
+                    nGx=int(base["nGx"]),
+                    nGy=int(base["nGy"]),
+                    aL=fixed_half,
+                    lL=fixed_half,
+                    HL=fixed_half,
+                    rGL=float(rGL),
+                )
+            )
         st.static_cases = _truncate_cases_by_dof(
             raw_cases, max_dof=st.static_max_dof, p=st.p, q=st.q, ndof=2
         )
