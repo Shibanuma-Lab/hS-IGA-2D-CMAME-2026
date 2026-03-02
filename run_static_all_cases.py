@@ -235,7 +235,7 @@ def main():
 
     # 3) fix hL groups (by nhL list)
     if start_rank <= group_order["fix_hL"]:
-        for nhL in (20, 40, 80, 160):
+        for nhL in (20, 40, 60, 80):
             hL = 1.0 / float(nhL)
             label = f"fix_hL_{_fmt_val(hL)}"
             cases = _build_fix_hl_cases(nhL=int(nhL))
