@@ -180,6 +180,7 @@ def load_static_parameters(sweep_mode: str = "fix_rGL"):
     st.ngpG = 2
     st.ngpL = st.p + 1
     st.ngpGL = st.p + 1
+    st.static_kgl_ngpGL = 3
     st.hrefLlist = 1
     st.islocallist = 1
     st.isdynamiclist = 0
@@ -225,6 +226,8 @@ def load_static_parameters(sweep_mode: str = "fix_rGL"):
             deduped, max_dof=st.static_max_dof, p=st.p, q=st.q, ndof=2
         )
     elif st.static_sweep_mode == "fix_hG":
+        # Higher coupling quadrature is required for stable fix_hG trends.
+        st.static_kgl_ngpGL = 5
         fixed_nG = 81
         nGx = int(fixed_nG)
         nGy = _nGy_from_nGx_exact(nGx)

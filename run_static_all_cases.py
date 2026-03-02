@@ -99,6 +99,7 @@ def _prep_batch(parent_label: str, cases: Sequence[dict], max_dof: int) -> List[
     st.static_parallel_jobs = 1
     st.static_parent_label = str(parent_label)
     st.static_max_dof = int(max_dof)
+    st.static_kgl_ngpGL = 5 if str(parent_label).startswith("fix_hG_") else 3
 
     trimmed = _truncate_cases_by_dof(
         list(cases),

@@ -133,6 +133,9 @@ static_iter_tol = 1.0e-10
 static_iter_maxiter = 50000
 static_iter_switch_dof = 120000
 static_release_memory_each_job = 1
+# Static-only coupling integration order override for KGL assembly.
+# Default keeps legacy 3x3 behavior; fix_hG campaigns may set this higher.
+static_kgl_ngpGL = 3
 
 islocal = 1
 isdynamic = 1

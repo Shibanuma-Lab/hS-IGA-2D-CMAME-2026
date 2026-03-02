@@ -257,14 +257,20 @@ def makeKGL6():
         st.KGL = np.zeros((st.neqG, st.neqL), dtype=float)
         st.MGL = np.zeros((st.neqG, st.neqL), dtype=float) if assemble_mass else None
 
-    ngpGL2 = st.ngpGL ** 2
+    kgl_ngp = int(st.ngpGL)
+    if is_static_case:
+        kgl_ngp = int(getattr(st, "static_kgl_ngpGL", st.ngpGL))
+    if kgl_ngp <= 0:
+        raise ValueError(f"Invalid KGL Gauss order: {kgl_ngp}")
+
+    xi_etaGL = np.asarray([(b, a) for a in GP(kgl_ngp) for b in GP(kgl_ngp)], dtype=float)
+    weightGL = np.asarray([w1 * w2 for w1 in GW(kgl_ngp) for w2 in GW(kgl_ngp)], dtype=float)
+    ngpGL2 = kgl_ngp ** 2
     tol_map = 1.0e-12
 
-    nnGL = np.asarray([np.asarray(v, dtype=float).ravel() for v in st.nnGL], dtype=float)
-    dshpGL = np.asarray([Dshp(pt) for pt in st.xi_etaGL], dtype=float)
-    nlsGL = np.asarray([enlarge2(shp(pt)) for pt in st.xi_etaGL], dtype=float) if assemble_mass else None
-    weightL = np.asarray(st.weightL, dtype=float)
-    weightGL = np.asarray(st.weightGL, dtype=float)
+    nnGL = np.asarray([np.asarray(shp(pt), dtype=float).ravel() for pt in xi_etaGL], dtype=float)
+    dshpGL = np.asarray([Dshp(pt) for pt in xi_etaGL], dtype=float)
+    nlsGL = np.asarray([enlarge2(shp(pt)) for pt in xi_etaGL], dtype=float) if assemble_mass else None
 
     enodeGe = np.asarray(st.enodeGe, dtype=float)
     ge_xmid = 0.5 * (enodeGe[:, 2, 0] + enodeGe[:, 0, 0])
@@ -434,7 +440,7 @@ def makeKGL6():
                 func[0, cols_u] = NN
                 func[1, cols_v] = NN
 
-            jw = np.linalg.det(JLs) * weightL[j] * thi
+            jw = np.linalg.det(JLs) * weightGL[j] * thi
             KGLes += (B.T @ de @ BLSs) * jw
             if assemble_mass:
                 MGLes += (func.T @ dRho @ NLSs) * jw
