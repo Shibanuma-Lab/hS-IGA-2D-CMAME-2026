@@ -4,8 +4,8 @@ Run all requested static sweeps and special static cases in one command.
 
 Requested campaign:
 1) fix rGL: rGL in [2, 4, 6, 8], nhL in range(5, 10000, 4)
-2) fix hG : nGx in [21, 41, 81, 161], nhL in range(5, 10000, 4)
-3) fix hL : nhL in [20, 40, 80, 160], rGL in range(2, 30)
+2) fix hG : nGx in [21, 41, 61, 81], nhL in range(5, 10000, 4)
+3) fix hL : nhL in [20, 40, 80, 160], nGx = 3,5,7,... until rGL<2
 4) special cases:
    a) nominal fix rGL=4 with (nGx, nhL) = (11,20), (21,40), (41,80)
    b) fix hG=2/21 with nhL = [20, 40, 80]
@@ -150,18 +150,27 @@ def _build_fix_hg_cases(nGx: int, nhL_values: Iterable[int]) -> List[dict]:
     ]
 
 
-def _build_fix_hl_cases(nhL: int, rgl_values: Iterable[int]) -> List[dict]:
+def _build_fix_hl_cases(nhL: int) -> List[dict]:
     _ensure_static_defaults()
     out = []
     half = int(nhL) // 2
-    for rgl in rgl_values:
-        base = _make_case(nhL=int(nhL), rGL=float(rgl))
-        nGx = int(base["nGx"])
-        nGy = int(base["nGy"])
+    hL_fixed = 1.0 / float(int(nhL))
+    width = float(st.static_width)
+    nGx = 3
+    while True:
+        nGy = _nGy_from_nGx_exact(nGx)
         if not _is_valid_global_divisions(nGx, nGy):
             print(
-                f"[INFO] fix_hL nhL={int(nhL)} stops at rGL={int(rgl)} "
+                f"[INFO] fix_hL nhL={int(nhL)} stops at nGx={int(nGx)} "
                 f"(invalid global divisions: nGx={nGx}, nGy={nGy})."
+            )
+            break
+        hG = width / float(nGx)
+        rGL = float(hG / hL_fixed)
+        if rGL < 2.0:
+            print(
+                f"[INFO] fix_hL nhL={int(nhL)} stops at nGx={int(nGx)} "
+                f"(rGL={rGL:.6f} < 2.0)."
             )
             break
         out.append(
@@ -172,9 +181,10 @@ def _build_fix_hl_cases(nhL: int, rgl_values: Iterable[int]) -> List[dict]:
                 aL=int(half),
                 lL=int(half),
                 HL=int(half),
-                rGL=float(rgl),
+                rGL=rGL,
             )
         )
+        nGx += 2
     return out
 
 
@@ -205,7 +215,6 @@ def main():
     start_from = str(args.start_from)
 
     nhL_sweep = range(10, 10000, 4)
-    rgl_sweep = range(2, 30)
     group_order = {"fix_rGL": 0, "fix_hG": 1, "fix_hL": 2, "special": 3}
     start_rank = group_order[start_from]
 
@@ -218,7 +227,7 @@ def main():
 
     # 2) fix hG groups (by nGx list)
     if start_rank <= group_order["fix_hG"]:
-        for nGx in (21, 41, 81, 161):
+        for nGx in (21, 41, 61, 81):
             hG = 2.0 / float(nGx)
             label = f"fix_hG_{_fmt_val(hG)}"
             cases = _build_fix_hg_cases(nGx=int(nGx), nhL_values=nhL_sweep)
@@ -229,7 +238,7 @@ def main():
         for nhL in (20, 40, 80, 160):
             hL = 1.0 / float(nhL)
             label = f"fix_hL_{_fmt_val(hL)}"
-            cases = _build_fix_hl_cases(nhL=int(nhL), rgl_values=rgl_sweep)
+            cases = _build_fix_hl_cases(nhL=int(nhL))
             _run_batch(label, cases, max_dof=dof_cap, dry_run=dry_run)
 
     # 4a) special: nominal fix rGL=4, three explicit pairs

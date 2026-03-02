@@ -251,21 +251,27 @@ def load_static_parameters(sweep_mode: str = "fix_rGL"):
         hL_fixed = 1.0 / float(fixed_nL)
         st.static_parent_label = f"fix_hL_{hL_fixed:.10g}"
         raw_cases = []
-        for rGL in range(2, 30):
-            base = _make_case(nhL=fixed_nhL, rGL=rGL)
-            if int(base["nGx"]) <= 0 or int(base["nGy"]) <= 0:
+        nGx = 3
+        while True:
+            nGy = _nGy_from_nGx_exact(nGx)
+            if int(nGx) <= 0 or int(nGy) <= 0:
+                break
+            hG = float(st.static_width) / float(nGx)
+            rGL = float(hG / hL_fixed)
+            if rGL < 2.0:
                 break
             raw_cases.append(
                 _make_case_with_counts(
                     nhL=fixed_nhL,
-                    nGx=int(base["nGx"]),
-                    nGy=int(base["nGy"]),
+                    nGx=int(nGx),
+                    nGy=int(nGy),
                     aL=fixed_half,
                     lL=fixed_half,
                     HL=fixed_half,
                     rGL=float(rGL),
                 )
             )
+            nGx += 2
         st.static_cases = _truncate_cases_by_dof(
             raw_cases, max_dof=st.static_max_dof, p=st.p, q=st.q, ndof=2
         )
