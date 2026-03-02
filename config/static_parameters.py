@@ -250,6 +250,8 @@ def load_static_parameters(sweep_mode: str = "fix_rGL"):
         raw_cases = []
         for rGL in range(2, 30):
             base = _make_case(nhL=fixed_nhL, rGL=rGL)
+            if int(base["nGx"]) <= 0 or int(base["nGy"]) <= 0:
+                break
             raw_cases.append(
                 _make_case_with_counts(
                     nhL=fixed_nhL,

@@ -38,6 +38,14 @@ def _fmt_val(v: float) -> str:
     return f"{float(v):.10g}"
 
 
+def _is_valid_global_divisions(nGx: int, nGy: int) -> bool:
+    """
+    Minimal validity for global IGA knot construction:
+      nPtsX - p = nGx > 0, nPtsY - q = nGy > 0
+    """
+    return int(nGx) > 0 and int(nGy) > 0
+
+
 def _make_case_with_fixed_ngx(
     nhL: int,
     nGx_raw: int,
@@ -147,11 +155,19 @@ def _build_fix_hl_cases(nhL: int, rgl_values: Iterable[int]) -> List[dict]:
     half = int(nhL) // 2
     for rgl in rgl_values:
         base = _make_case(nhL=int(nhL), rGL=float(rgl))
+        nGx = int(base["nGx"])
+        nGy = int(base["nGy"])
+        if not _is_valid_global_divisions(nGx, nGy):
+            print(
+                f"[INFO] fix_hL nhL={int(nhL)} stops at rGL={int(rgl)} "
+                f"(invalid global divisions: nGx={nGx}, nGy={nGy})."
+            )
+            break
         out.append(
             _make_case_with_counts(
                 nhL=int(nhL),
-                nGx=int(base["nGx"]),
-                nGy=int(base["nGy"]),
+                nGx=nGx,
+                nGy=nGy,
                 aL=int(half),
                 lL=int(half),
                 HL=int(half),
@@ -174,57 +190,71 @@ def main():
         action="store_true",
         help="Only print batch/case counts after DOF truncation, do not run solver.",
     )
+    parser.add_argument(
+        "--start-from",
+        type=str,
+        choices=["fix_rGL", "fix_hG", "fix_hL", "special"],
+        default="fix_rGL",
+        help="Start campaign from this group (default: fix_rGL).",
+    )
     args = parser.parse_args()
 
     dof_cap = int(args.dof_cap)
     dry_run = bool(args.dry_run)
+    start_from = str(args.start_from)
 
     nhL_sweep = range(10, 10000, 4)
     rgl_sweep = range(2, 30)
+    group_order = {"fix_rGL": 0, "fix_hG": 1, "fix_hL": 2, "special": 3}
+    start_rank = group_order[start_from]
 
     # 1) fix rGL groups
-    for rgl in (2, 4, 6, 8):
-        label = f"fix_rGL_{int(rgl)}"
-        cases = _build_fix_rgl_cases(rgl=int(rgl), nhL_values=nhL_sweep)
-        _run_batch(label, cases, max_dof=dof_cap, dry_run=dry_run)
+    if start_rank <= group_order["fix_rGL"]:
+        for rgl in (2, 4, 6, 8):
+            label = f"fix_rGL_{int(rgl)}"
+            cases = _build_fix_rgl_cases(rgl=int(rgl), nhL_values=nhL_sweep)
+            _run_batch(label, cases, max_dof=dof_cap, dry_run=dry_run)
 
     # 2) fix hG groups (by nGx list)
-    for nGx in (21, 41, 81, 161):
-        hG = 2.0 / float(nGx)
-        label = f"fix_hG_{_fmt_val(hG)}"
-        cases = _build_fix_hg_cases(nGx=int(nGx), nhL_values=nhL_sweep)
-        _run_batch(label, cases, max_dof=dof_cap, dry_run=dry_run)
+    if start_rank <= group_order["fix_hG"]:
+        for nGx in (21, 41, 81, 161):
+            hG = 2.0 / float(nGx)
+            label = f"fix_hG_{_fmt_val(hG)}"
+            cases = _build_fix_hg_cases(nGx=int(nGx), nhL_values=nhL_sweep)
+            _run_batch(label, cases, max_dof=dof_cap, dry_run=dry_run)
 
     # 3) fix hL groups (by nhL list)
-    for nhL in (20, 40, 80, 160):
-        hL = 1.0 / float(nhL)
-        label = f"fix_hL_{_fmt_val(hL)}"
-        cases = _build_fix_hl_cases(nhL=int(nhL), rgl_values=rgl_sweep)
-        _run_batch(label, cases, max_dof=dof_cap, dry_run=dry_run)
+    if start_rank <= group_order["fix_hL"]:
+        for nhL in (20, 40, 80, 160):
+            hL = 1.0 / float(nhL)
+            label = f"fix_hL_{_fmt_val(hL)}"
+            cases = _build_fix_hl_cases(nhL=int(nhL), rgl_values=rgl_sweep)
+            _run_batch(label, cases, max_dof=dof_cap, dry_run=dry_run)
 
     # 4a) special: nominal fix rGL=4, three explicit pairs
-    special_a = [
-        _make_case_with_fixed_ngx(20, 11, nominal_rgl=4.0, exact_local_counts=True),
-        _make_case_with_fixed_ngx(40, 21, nominal_rgl=4.0, exact_local_counts=True),
-        _make_case_with_fixed_ngx(80, 41, nominal_rgl=4.0, exact_local_counts=True),
-    ]
-    _run_batch("special_fix_rGL_4", special_a, max_dof=dof_cap, dry_run=dry_run)
+    if start_rank <= group_order["special"]:
+        special_a = [
+            _make_case_with_fixed_ngx(20, 11, nominal_rgl=4.0, exact_local_counts=True),
+            _make_case_with_fixed_ngx(40, 21, nominal_rgl=4.0, exact_local_counts=True),
+            _make_case_with_fixed_ngx(80, 41, nominal_rgl=4.0, exact_local_counts=True),
+        ]
+        _run_batch("special_fix_rGL_4", special_a, max_dof=dof_cap, dry_run=dry_run)
 
-    # 4b) special: fix hG = 2/21, hL list = [1/20, 1/40, 1/80]
-    special_b = [
-        _make_case_with_fixed_ngx(20, 21, exact_local_counts=True),
-        _make_case_with_fixed_ngx(40, 21, exact_local_counts=True),
-        _make_case_with_fixed_ngx(80, 21, exact_local_counts=True),
-    ]
-    _run_batch("special_fix_hG_2_over_21", special_b, max_dof=dof_cap, dry_run=dry_run)
+        # 4b) special: fix hG = 2/21, hL list = [1/20, 1/40, 1/80]
+        special_b = [
+            _make_case_with_fixed_ngx(20, 21, exact_local_counts=True),
+            _make_case_with_fixed_ngx(40, 21, exact_local_counts=True),
+            _make_case_with_fixed_ngx(80, 21, exact_local_counts=True),
+        ]
+        _run_batch("special_fix_hG_2_over_21", special_b, max_dof=dof_cap, dry_run=dry_run)
 
-    # 4c) special: fix hL = 1/80, hG list = [2/11, 2/21, 2/41]
-    special_c = [
-        _make_case_with_fixed_ngx(80, 11, exact_local_counts=True),
-        _make_case_with_fixed_ngx(80, 21, exact_local_counts=True),
-        _make_case_with_fixed_ngx(80, 41, exact_local_counts=True),
-    ]
-    _run_batch("special_fix_hL_1_over_80", special_c, max_dof=dof_cap, dry_run=dry_run)
+        # 4c) special: fix hL = 1/80, hG list = [2/11, 2/21, 2/41]
+        special_c = [
+            _make_case_with_fixed_ngx(80, 11, exact_local_counts=True),
+            _make_case_with_fixed_ngx(80, 21, exact_local_counts=True),
+            _make_case_with_fixed_ngx(80, 41, exact_local_counts=True),
+        ]
+        _run_batch("special_fix_hL_1_over_80", special_c, max_dof=dof_cap, dry_run=dry_run)
 
     print("[DONE] All requested static campaigns completed.")
 
