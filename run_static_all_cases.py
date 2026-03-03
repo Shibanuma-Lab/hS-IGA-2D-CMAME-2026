@@ -5,7 +5,7 @@ Run all requested static sweeps and special static cases in one command.
 Requested campaign:
 1) fix rGL: rGL in [2, 4, 6, 8], nhL in range(5, 10000, 4)
 2) fix hG : nGx in [21, 41, 61, 81], nhL in range(5, 10000, 4)
-3) fix hL : nhL in [20, 40, 60, 80], nGx = 3,5,7,... until rGL<2
+3) fix hL : nhL in [20, 40, 60, 80, 160], nGx = 3,5,7,... until rGL<2
 4) special cases:
    a) nominal fix rGL=4 with (nGx, nhL) = (11,20), (21,40), (41,80)
    b) fix hG=2/21 with nhL = [20, 40, 80]
@@ -208,11 +208,26 @@ def main():
         default="fix_rGL",
         help="Start campaign from this group (default: fix_rGL).",
     )
+    parser.add_argument(
+        "--only-fix-hl-nhl",
+        type=int,
+        nargs="+",
+        help="Only run selected nhL values inside fix_hL group (e.g. 160).",
+    )
+    parser.add_argument(
+        "--skip-special",
+        action="store_true",
+        help="Skip running special groups.",
+    )
     args = parser.parse_args()
 
     dof_cap = int(args.dof_cap)
     dry_run = bool(args.dry_run)
     start_from = str(args.start_from)
+    only_fix_hl_nhl = None
+    if args.only_fix_hl_nhl is not None:
+        only_fix_hl_nhl = tuple(dict.fromkeys(int(v) for v in args.only_fix_hl_nhl if int(v) > 0))
+    skip_special = bool(args.skip_special)
 
     nhL_sweep = range(10, 10000, 4)
     group_order = {"fix_rGL": 0, "fix_hG": 1, "fix_hL": 2, "special": 3}
@@ -235,14 +250,17 @@ def main():
 
     # 3) fix hL groups (by nhL list)
     if start_rank <= group_order["fix_hL"]:
-        for nhL in (20, 40, 60, 80):
+        fix_hl_nhls = (20, 40, 60, 80, 160)
+        if only_fix_hl_nhl is not None and len(only_fix_hl_nhl) > 0:
+            fix_hl_nhls = tuple(only_fix_hl_nhl)
+        for nhL in fix_hl_nhls:
             hL = 1.0 / float(nhL)
             label = f"fix_hL_{_fmt_val(hL)}"
             cases = _build_fix_hl_cases(nhL=int(nhL))
             _run_batch(label, cases, max_dof=dof_cap, dry_run=dry_run)
 
     # 4a) special: nominal fix rGL=4, three explicit pairs
-    if start_rank <= group_order["special"]:
+    if (not skip_special) and start_rank <= group_order["special"]:
         special_a = [
             _make_case_with_fixed_ngx(20, 11, nominal_rgl=4.0, exact_local_counts=True),
             _make_case_with_fixed_ngx(40, 21, nominal_rgl=4.0, exact_local_counts=True),
