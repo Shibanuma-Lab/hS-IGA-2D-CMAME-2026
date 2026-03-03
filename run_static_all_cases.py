@@ -10,6 +10,7 @@ Requested campaign:
    a) nominal fix rGL=4 with (nGx, nhL) = (11,20), (21,40), (41,80)
    b) fix hG=2/21 with nhL = [20, 40, 80]
    c) fix hL=1/80 with nGx = [11, 21, 41]
+   d) VTU stress-diff examples: (nGx, nhL) = (11,40), (11,80), (41,40), (41,80)
 """
 
 from __future__ import annotations
@@ -219,6 +220,11 @@ def main():
         action="store_true",
         help="Skip running special groups.",
     )
+    parser.add_argument(
+        "--only-vtu-diff-cases",
+        action="store_true",
+        help="Run only 4 VTU stress-difference example cases and exit.",
+    )
     args = parser.parse_args()
 
     dof_cap = int(args.dof_cap)
@@ -228,6 +234,23 @@ def main():
     if args.only_fix_hl_nhl is not None:
         only_fix_hl_nhl = tuple(dict.fromkeys(int(v) for v in args.only_fix_hl_nhl if int(v) > 0))
     skip_special = bool(args.skip_special)
+    only_vtu_diff_cases = bool(args.only_vtu_diff_cases)
+
+    if only_vtu_diff_cases:
+        vtu_diff_cases = [
+            _make_case_with_fixed_ngx(40, 11, exact_local_counts=True),
+            _make_case_with_fixed_ngx(80, 11, exact_local_counts=True),
+            _make_case_with_fixed_ngx(40, 41, exact_local_counts=True),
+            _make_case_with_fixed_ngx(80, 41, exact_local_counts=True),
+        ]
+        _run_batch(
+            "special_vtu_stress_diff_examples",
+            vtu_diff_cases,
+            max_dof=dof_cap,
+            dry_run=dry_run,
+        )
+        print("[DONE] All requested static campaigns completed.")
+        return
 
     nhL_sweep = range(10, 10000, 4)
     group_order = {"fix_rGL": 0, "fix_hG": 1, "fix_hL": 2, "special": 3}
@@ -283,6 +306,15 @@ def main():
             _make_case_with_fixed_ngx(80, 41, exact_local_counts=True),
         ]
         _run_batch("special_fix_hL_1_over_80", special_c, max_dof=dof_cap, dry_run=dry_run)
+
+        # 4d) special: VTU stress-difference examples
+        special_d = [
+            _make_case_with_fixed_ngx(40, 11, exact_local_counts=True),
+            _make_case_with_fixed_ngx(80, 11, exact_local_counts=True),
+            _make_case_with_fixed_ngx(40, 41, exact_local_counts=True),
+            _make_case_with_fixed_ngx(80, 41, exact_local_counts=True),
+        ]
+        _run_batch("special_vtu_stress_diff_examples", special_d, max_dof=dof_cap, dry_run=dry_run)
 
     print("[DONE] All requested static campaigns completed.")
 

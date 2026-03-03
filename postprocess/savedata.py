@@ -5,6 +5,7 @@ savedata – accumulate per-step results and (optionally) export VTU files.
 import numpy as np
 import core.state as st
 from pathlib import Path
+from utils.static_crack import exact_mode_i_stress_yy
 
 
 def savedata(step):
@@ -67,8 +68,27 @@ def savedata(step):
     offsets = np.arange(1, len(elemVTU) + 1) * 4
     types   = np.full(len(elemVTU), 9, dtype=int)
 
+    # ---- Stress difference from static analytical reference ----
+    stress_yy_diff = np.zeros(len(pointsVTU), dtype=float)
+    if getattr(st, "analysis_mode", "dynamic") == "static":
+        ref_stress_yy = np.array(
+            [exact_mode_i_stress_yy(pt[:2], float(st.static_crack_tip_x)) for pt in pointsVTU],
+            dtype=float,
+        )
+        stress_yy_diff = np.asarray(stressVTU[:, 1], dtype=float) - ref_stress_yy
+
     # ---- Export VTU file ----
-    _write_vtu(step, pointsVTU, elemVTU, dispVTU, stressVTU, islocalList, offsets, types)
+    _write_vtu(
+        step,
+        pointsVTU,
+        elemVTU,
+        dispVTU,
+        stressVTU,
+        stress_yy_diff,
+        islocalList,
+        offsets,
+        types,
+    )
 
 
 def _write_step_result_dat():
@@ -134,7 +154,7 @@ def _write_elem_dat(path, elems, title):
             f.write(f"{i} {n1} {n2} {n3} {n4}\n")
 
 
-def _write_vtu(step, points, cells, disp, stress, islocal, offsets, types):
+def _write_vtu(step, points, cells, disp, stress, stress_yy_diff, islocal, offsets, types):
     """Write VTU file for the current step."""
     if getattr(st, "analysis_mode", "dynamic") == "static":
         vtu_dir = Path(st.dirname)
@@ -194,6 +214,10 @@ def _write_vtu(step, points, cells, disp, stress, islocal, offsets, types):
         f.write('        <DataArray type="Float64" Name="Stress_yy" format="ascii">\n')
         for s in stress:
             f.write(f'          {s[1]:.10e}\n')
+        f.write('        </DataArray>\n')
+        f.write('        <DataArray type="Float64" Name="Stress_yy_diff_from_ref" format="ascii">\n')
+        for d in stress_yy_diff:
+            f.write(f'          {d:.10e}\n')
         f.write('        </DataArray>\n')
         f.write('        <DataArray type="Float64" Name="Stress_xy" format="ascii">\n')
         for s in stress:

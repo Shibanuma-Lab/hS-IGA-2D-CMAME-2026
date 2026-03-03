@@ -63,12 +63,12 @@ def _adjust_global_divisions(nGxbf: int):
 def _nGy_from_nGx_exact(nGx: int) -> int:
     """
     Exact global Y-division rule used in integrated static campaigns:
-    nGy = (nGx + 1) / 2 for odd nGx.
+    nGy = (nGx - 1) / 2 for odd nGx.
     """
     nGx = int(nGx)
     if nGx % 2 == 0:
         raise ValueError(f"nGx must be odd for exact campaign settings, got {nGx}")
-    return int((nGx + 1) // 2)
+    return int((nGx - 1) // 2)
 
 
 def _make_case_with_counts(
