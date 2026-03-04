@@ -181,6 +181,8 @@ def load_static_parameters(sweep_mode: str = "fix_rGL"):
     st.ngpL = st.p + 1
     st.ngpGL = st.p + 1
     st.static_kgl_ngpGL = 3
+    # Use eighth-order Gauss quadrature for L2 error norm postprocessing.
+    st.static_l2_ngp = 8
     st.hrefLlist = 1
     st.islocallist = 1
     st.isdynamiclist = 0

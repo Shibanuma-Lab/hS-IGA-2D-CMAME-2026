@@ -20,58 +20,18 @@ def _zero_snap(x: float, scale: float) -> float:
     return 0.0 if abs(x) < 1.0e-9 * scale else float(x)
 
 
-def _legacy_l2_quadrature():
-    """Return the legacy 4-point quadrature table used by the original script."""
-    intpco = [
-        [0.0],
-        [-0.5773502691896258, 0.5773502691896258],
-        [-0.7745966692414834, 0.0, 0.7745966692414834],
-        [-0.8302961484013275, -0.40957436820775056, 0.40957436820775056, 0.8302961484013275],
-        [-0.906179845938664, -0.5384693101056831, 0.0, 0.5384693101056831, 0.906179845938664],
-        [
-            -0.932469514203152,
-            -0.6612093864662645,
-            -0.2386191860831969,
-            0.2386191860831969,
-            0.6612093864662645,
-            0.932469514203152,
-        ],
-        [0.0] * 7,
-        [
-            -0.9602898564975363,
-            -0.7966664774136267,
-            -0.525532409916329,
-            -0.1834346424956498,
-            0.1834346424956498,
-            0.525532409916329,
-            0.7966664774136267,
-            0.9602898564975363,
-        ],
-    ]
-    wlist = [
-        [2.0],
-        [1.0, 1.0],
-        [0.5555555555555556, 0.8888888888888888, 0.5555555555555556],
-        [0.3478548451374538, 0.6521451548625461, 0.6521451548625461, 0.3478548451374538],
-        [0.2369268850561891, 0.4786286704993665, 0.5688888888888889, 0.4786286704993665, 0.2369268850561891],
-        [0.1713244923791704, 0.3607615730481386, 0.467913934572691, 0.467913934572691, 0.3607615730481386, 0.1713244923791704],
-        [0.0] * 7,
-        [
-            0.1012285362903763,
-            0.2223810344533745,
-            0.3137066458778873,
-            0.362683783378362,
-            0.362683783378362,
-            0.3137066458778873,
-            0.2223810344533745,
-            0.1012285362903763,
-        ],
-    ]
-    intp = 4
-    gp1 = np.array(intpco[intp - 1], dtype=float)
-    gw1 = np.array(wlist[intp - 1], dtype=float)
-    gauss_points = np.array([(b, a) for a in gp1 for b in gp1], dtype=float)
-    weights = np.outer(gw1, gw1).flatten()
+def _l2_quadrature():
+    """
+    Return tensor-product Gauss points/weights for static L2 integration.
+
+    Uses the same GP/GW source as assembly so L2 and shape-function integration
+    stay fully consistent.
+    """
+    ngp = int(getattr(st, "static_l2_ngp", 8))
+    gp1 = np.asarray(GP(ngp), dtype=np.float64)
+    gw1 = np.asarray(GW(ngp), dtype=np.float64)
+    gauss_points = np.array([(b, a) for a in gp1 for b in gp1], dtype=np.float64)
+    weights = np.outer(gw1, gw1).reshape(-1).astype(np.float64)
     return gauss_points, weights
 
 
@@ -195,7 +155,7 @@ def _compute_l2_norm_fallback():
     uLx = BilinearQuadInterpolator(st.nodeL, st.elemL, st.disLG2D[:, 0], name="static_meshL_x")
     uLy = BilinearQuadInterpolator(st.nodeL, st.elemL, st.disLG2D[:, 1], name="static_meshL_y")
 
-    gauss_points, weights = _legacy_l2_quadrature()
+    gauss_points, weights = _l2_quadrature()
     min_lx = float(np.min(st.nodeL[:, 0]))
     max_lx = float(np.max(st.nodeL[:, 0]))
     min_ly = float(np.min(st.nodeL[:, 1]))
@@ -267,7 +227,7 @@ def compute_l2_norm():
     lx_grid, ly_grid, l_field_x = l_x
     _, _, l_field_y = l_y
 
-    gauss_points, weights = _legacy_l2_quadrature()
+    gauss_points, weights = _l2_quadrature()
     half = 0.5 * h_back
     det_jac = half * half
     dx = gauss_points[:, 0] * half

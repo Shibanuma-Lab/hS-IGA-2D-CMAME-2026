@@ -136,6 +136,8 @@ static_release_memory_each_job = 1
 # Static-only coupling integration order override for KGL assembly.
 # Default keeps legacy 3x3 behavior; fix_hG campaigns may set this higher.
 static_kgl_ngpGL = 3
+# Static-only L2 postprocessing quadrature order per direction (ngp x ngp).
+static_l2_ngp = 8
 
 islocal = 1
 isdynamic = 1
