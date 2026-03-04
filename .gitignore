@@ -45,3 +45,7 @@ reference*
 
 # large data files (if any, e.g., FEM reference data)
 FEM_data/uva*
+
+*dat
+Fix*
+static_results/

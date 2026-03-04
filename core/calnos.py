@@ -123,7 +123,9 @@ def calnos():
     for stp in range(1, int(st.stepall) + 1):
         row = []
         rstart = (stp + 2) if (stp <= st.aL) else (st.aL + 2)
-        for r in range(rstart, int(st.nLr)):
+        # Include r = nLr (1-based upper bound in the original indexing),
+        # so the post-tip sampling count becomes lL-1 for step >= aL.
+        for r in range(rstart, int(st.nLr) + 1):
             xval = st.hL * ((r - 1) - stp) if (stp <= st.aL) else st.hL * ((r - 1) - st.aL)
             row.append(syy(xval, st.hL * stp, st.v, st.Sigma_app))
         SigmaB.append(row)
@@ -135,7 +137,7 @@ def calnos():
     for stp in range(1, int(st.stepall) + 1):
         row = []
         rstart = (stp + 2) if (stp <= st.aL) else (st.aL + 2)
-        for r in range(rstart, int(st.nLr)):
+        for r in range(rstart, int(st.nLr) + 1):
             row.append(float(SigmaL2DAll[stp - 1][r - 1][1]))
         Sigma_sol.append(row)
 
