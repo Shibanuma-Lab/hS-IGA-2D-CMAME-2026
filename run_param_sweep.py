@@ -48,14 +48,15 @@ def _folder_name(v: float, case: SweepCase) -> str:
     return f"v_{int(v)}_rGL_{case.rGL}_aL_{case.aL}_lL_{case.lL}_HL_{case.HL}"
 
 
-def build_sweep_cases(base_rGL: int = 6) -> List[SweepCase]:
+def build_sweep_cases(base_rGL: int = 6, ll_values: Sequence[int] | None = None) -> List[SweepCase]:
     """
     Build the 4 sweep groups in order.
     """
     rgl_values = [2, 3, 4, 5, 6, 8, 10]
     aL_factors = [1.0, 1.5, 2.0, 2.5, 3.0, 3.5]
-    lL_values = [5, 10, 15, 20, 25, 30]
-    HL_factors = [0.8, 1.0, 1.2, 1.4, 1.6, 1.8, 2.0, 2.2, 2.4]
+    # lL is controlled by ratio to rGL (same style as aL).
+    lL_factors = [0.8, 1.0, 1.2, 1.4, 1.8, 2.2]
+    HL_factors = [0.8, 1.0, 1.2, 1.4, 1.6, 1.8, 2.0, 2.4]
 
     all_cases: List[SweepCase] = []
 
@@ -67,13 +68,14 @@ def build_sweep_cases(base_rGL: int = 6) -> List[SweepCase]:
                 label=f"rGL={r}",
                 rGL=int(r),
                 aL=_ceil_mul(r, 2.5),
-                lL=15,
+                lL=_ceil_mul(r, 1.2),
                 HL=_ceil_mul(r, 1.8),
             )
         )
 
     # Fixed baseline for other groups
     base_aL = _ceil_mul(base_rGL, 2.5)
+    base_lL = _ceil_mul(base_rGL, 1.2)
     base_HL = _ceil_mul(base_rGL, 1.8)
 
     # 2) aL sweep
@@ -84,17 +86,26 @@ def build_sweep_cases(base_rGL: int = 6) -> List[SweepCase]:
                 label=f"aL=ceil({f:.1f}*rGL)",
                 rGL=int(base_rGL),
                 aL=_ceil_mul(base_rGL, f),
-                lL=15,
+                lL=base_lL,
                 HL=base_HL,
             )
         )
 
     # 3) lL sweep
-    for ll in lL_values:
+    if ll_values is not None:
+        # Optional absolute override from CLI (kept for targeted reruns).
+        iter_ll = [(f"lL={int(ll)}", int(ll)) for ll in ll_values]
+    else:
+        iter_ll = [
+            (f"lL=ceil({f:.1f}*rGL)", _ceil_mul(base_rGL, f))
+            for f in lL_factors
+        ]
+
+    for label, ll in iter_ll:
         all_cases.append(
             SweepCase(
                 group="lL",
-                label=f"lL={ll}",
+                label=label,
                 rGL=int(base_rGL),
                 aL=base_aL,
                 lL=int(ll),
@@ -110,7 +121,7 @@ def build_sweep_cases(base_rGL: int = 6) -> List[SweepCase]:
                 label=f"HL=ceil({f:.1f}*rGL)",
                 rGL=int(base_rGL),
                 aL=base_aL,
-                lL=15,
+                lL=base_lL,
                 HL=_ceil_mul(base_rGL, f),
             )
         )
@@ -255,6 +266,17 @@ def _parse_groups(raw: str) -> List[str]:
     return groups
 
 
+def _parse_int_list(raw: str) -> List[int]:
+    vals = [x.strip() for x in raw.split(",") if x.strip()]
+    if not vals:
+        raise ValueError("List cannot be empty.")
+    out = [int(v) for v in vals]
+    if any(v <= 0 for v in out):
+        raise ValueError("All list values must be positive integers.")
+    # Preserve input order while removing duplicates.
+    return list(dict.fromkeys(out))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run automated parameter-condition sweeps.")
     parser.add_argument("--v", type=float, default=500.0, help="Crack velocity value for this sweep.")
@@ -273,13 +295,20 @@ def main() -> int:
         default=0,
         help="Run only first N cases after filtering (0 means all).",
     )
+    parser.add_argument(
+        "--ll-values",
+        type=str,
+        default=None,
+        help="Override lL sweep values as comma list, e.g. '4,6,8,9'.",
+    )
     args = parser.parse_args()
 
     project_root = Path(__file__).resolve().parent
     os.chdir(project_root)
 
     groups = _parse_groups(args.groups)
-    all_cases = build_sweep_cases(base_rGL=int(args.base_rgl))
+    ll_values = _parse_int_list(args.ll_values) if args.ll_values is not None else None
+    all_cases = build_sweep_cases(base_rGL=int(args.base_rgl), ll_values=ll_values)
     selected = [c for c in all_cases if c.group in set(groups)]
     if args.max_cases > 0:
         selected = selected[: int(args.max_cases)]
