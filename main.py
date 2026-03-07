@@ -15,7 +15,7 @@ import core.state as st
 
 # ---- Configuration ----
 from config.parameters import load_parameters
-from config.fem_data import load_fem_data, resolve_fem_mat_path
+from config.fem_data import load_fem_data, resolve_fem_reference_path
 
 # ---- Core logic ----
 from core.alldata import Alldata
@@ -44,7 +44,7 @@ from postprocess.savedata import savedata
 from postprocess.debug_output import write_debug_info
 from postprocess.jintegral_2d import (
     calculate_jintegral_2d,
-    calculate_jintegral_2d_fem_from_mat,
+    calculate_jintegral_2d_fem_reference,
     compare_jintegral_results,
 )
 
@@ -134,19 +134,20 @@ def run_jintegral_postprocess():
 
     fem_mat_cfg = getattr(st, "jintegral_fem_mat_file", "auto")
     if str(fem_mat_cfg).strip().lower() == "auto" and getattr(st, "fem_mat_file_resolved", None):
-        fem_mat = Path(st.fem_mat_file_resolved)
+        fem_ref_kind = str(getattr(st, "fem_reference_kind", "auto"))
+        fem_ref = Path(st.fem_mat_file_resolved)
     else:
-        fem_mat = resolve_fem_mat_path(fem_mat_cfg)
+        fem_ref_kind, fem_ref = resolve_fem_reference_path(fem_mat_cfg)
 
-    if not fem_mat.exists():
-        print(f"[JINT] Skip FEM comparison: mat file not found: {fem_mat}")
+    if not fem_ref.exists():
+        print(f"[JINT] Skip FEM comparison: reference source not found: {fem_ref}")
         return
     fem_out = st.dirname / f"J_integral_2D_FEM_v{int(st.v)}.csv"
     cmp_out = st.dirname / f"J_integral_2D_compare_hs_vs_FEM_v{int(st.v)}_rGL{int(st.rGL)}.csv"
 
-    print(f"[JINT] Calculating FEM reference from: {fem_mat}")
-    fem_results = calculate_jintegral_2d_fem_from_mat(
-        fem_mat_file=fem_mat,
+    print(f"[JINT] Calculating FEM reference ({fem_ref_kind}) from: {fem_ref}")
+    fem_results = calculate_jintegral_2d_fem_reference(
+        fem_reference_file=fem_ref,
         step_start=step_start,
         step_end=step_end,
         Rj0=float(st.jintegral_Rj0),

@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Dict, List, Sequence
 
 import core.state as st
-from config.fem_data import resolve_fem_mat_path
+from config.fem_data import resolve_fem_reference_path
 from config.parameters import load_parameters
 from main import execution
 
@@ -218,10 +218,12 @@ def run_sweep(
             os.chdir(project_root)
             _configure_state_for_case(v=v, case=case)
 
-            # Validate FEM MAT path before starting expensive solve.
-            mat_path = resolve_fem_mat_path("auto")
-            if not mat_path.exists():
-                raise FileNotFoundError(f"FEM mat file not found for this case: {mat_path}")
+            # Validate FEM reference source before starting expensive solve.
+            _, fem_ref_path = resolve_fem_reference_path("auto")
+            if not fem_ref_path.exists():
+                raise FileNotFoundError(
+                    f"FEM reference source not found for this case: {fem_ref_path}"
+                )
 
             execution()
             elapsed = time.time() - t0

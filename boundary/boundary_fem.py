@@ -7,6 +7,7 @@ import core.state as st
 from utils.interpolator import BilinearQuadInterpolator
 from pathlib import Path
 from boundary.node_selector import find_nodes_on_extreme
+from config.fem_data import get_fem_step_displacement
 
 
 def boundaryFEM(step):
@@ -38,14 +39,10 @@ def boundaryFEM(step):
         ebc1 = [[nid, 1, precomputed_bc.get((step, nid + 1, 'x'), 0.0)] for nid in FEMbc]
         ebc2 = [[nid, 2, precomputed_bc.get((step, nid + 1, 'y'), 0.0)] for nid in FEMbc]
     else:
-        IntpdisGx = BilinearQuadInterpolator(
-            st.nodeFEM, st.elemFEM, st.disFEMsolutionAll[step, :, 0], name="FEM_x")
-        IntpdisGy = BilinearQuadInterpolator(
-            st.nodeFEM, st.elemFEM, st.disFEMsolutionAll[step, :, 1], name="FEM_y")
-        
-        # Construct ebc using interpolation
-        ebc1 = [[nid, 1, IntpdisGx(st.nodeG[nid])] for nid in FEMbc]
-        ebc2 = [[nid, 2, IntpdisGy(st.nodeG[nid])] for nid in FEMbc]
+        dis_step = get_fem_step_displacement(step)
+        bc_x, bc_y = _interpolate_bilinear_cached(FEMbc, dis_step)
+        ebc1 = [[int(nid), 1, float(val)] for nid, val in zip(FEMbc, bc_x)]
+        ebc2 = [[int(nid), 2, float(val)] for nid, val in zip(FEMbc, bc_y)]
 
     fixbcX = sorted(list(set(leftNodes) - set(upNodes)))
     _tmp   = sorted(list(set(downNodes) - set(rightNodes)))
@@ -57,6 +54,48 @@ def boundaryFEM(step):
     st.ebc = np.array(ebc1 + ebc2 + ebc3 + ebc4, dtype=float)
 
     st.nbc = np.array([[1.0, 1.0, 0.0]], dtype=float)
+
+
+def _interpolate_bilinear_cached(FEMbc, dis_step):
+    cache = getattr(st, "_fem_bilinear_bc_cache", None)
+    fembc_ids = np.asarray(FEMbc, dtype=int).ravel()
+    mesh_sig = (
+        id(st.nodeFEM),
+        id(st.elemFEM),
+        int(len(st.nodeFEM)),
+        int(len(st.elemFEM)),
+    )
+
+    needs_rebuild = (
+        cache is None
+        or cache.get("mesh_sig") != mesh_sig
+        or cache.get("n_query") != int(len(fembc_ids))
+        or not np.array_equal(cache.get("fembc_ids"), fembc_ids)
+    )
+
+    if needs_rebuild:
+        interp = BilinearQuadInterpolator(
+            st.nodeFEM,
+            st.elemFEM,
+            np.zeros(len(st.nodeFEM), dtype=float),
+            name="FEM_bc",
+        )
+        query_points = np.asarray([st.nodeG[int(nid)] for nid in fembc_ids], dtype=float)
+        point_map = interp.precompute_point_map(query_points)
+        cache = {
+            "mesh_sig": mesh_sig,
+            "n_query": int(len(fembc_ids)),
+            "fembc_ids": fembc_ids.copy(),
+            "interp": interp,
+            "point_map": point_map,
+        }
+        st._fem_bilinear_bc_cache = cache
+
+    vals_x = np.asarray(dis_step[:, 0], dtype=float)
+    vals_y = np.asarray(dis_step[:, 1], dtype=float)
+    out_x = cache["interp"].evaluate_from_point_map(cache["point_map"], vals_x)
+    out_y = cache["interp"].evaluate_from_point_map(cache["point_map"], vals_y)
+    return out_x, out_y
 
 
 def _load_precomputed_bc(step):

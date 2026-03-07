@@ -25,6 +25,14 @@ elemFEM = None                # (M, 4)  FEM element connectivity (0-based)
 fem_mat_prefix = "uvaG2DAllFEM2D"
 fem_mat_file = "auto"
 fem_mat_file_resolved = None
+fem_reference_source = "auto"  # auto | mat | h5
+fem_reference_kind = "mat"     # runtime-resolved source kind
+fem_h5_dir_prefix = "h5_export_v"
+fem_h5_dir = "auto"
+fem_h5_plane_z = 0.0
+fem_h5_plane_tol = None
+fem_mat_max_crack_mm = 10
+fem_h5_reader = None
 
 # ===================================================================
 # Fundamental parameters (set by config/parameters.py)
@@ -45,6 +53,7 @@ thi = 1.0
 nPtsX = 120
 nPtsY = 7
 auto_global_domain = 1
+domain_target_x_auto_from_crack = 1
 domain_target_x = 20.0e-3
 domain_target_y = 5.0e-3
 domain_x_actual = None
@@ -82,8 +91,8 @@ islocallist = 1
 isdynamiclist = 1
 
 stepini = 0
-stepend = 10
-stepall = 10
+stepend = -1
+stepall = 200
 REstart = 0
 
 postprocess = 0

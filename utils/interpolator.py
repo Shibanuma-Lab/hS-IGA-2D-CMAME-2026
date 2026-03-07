@@ -241,6 +241,74 @@ class BilinearQuadInterpolator:
         return None, None, False
 
     # ------------------------------------------------------------------
+    def precompute_point_map(self, points):
+        """
+        Precompute element IDs + bilinear shape weights for fixed query points.
+
+        This is useful for time stepping where geometry is fixed and only nodal
+        field values change between steps.
+        """
+        pts = np.atleast_2d(np.asarray(points, dtype=float))
+        npt = int(pts.shape[0])
+
+        elem_ids = np.full(npt, -1, dtype=int)
+        weights = np.zeros((npt, 4), dtype=float)
+        nearest_ids = np.full(npt, -1, dtype=int)
+
+        for i, (x, y) in enumerate(pts):
+            e, xi, eta = self._find_containing_element(float(x), float(y))
+            if e is not None:
+                elem_ids[i] = int(e)
+                weights[i, :] = np.array(
+                    [
+                        0.25 * (1 - xi) * (1 - eta),
+                        0.25 * (1 + xi) * (1 - eta),
+                        0.25 * (1 + xi) * (1 + eta),
+                        0.25 * (1 - xi) * (1 + eta),
+                    ],
+                    dtype=float,
+                )
+            else:
+                # Fallback for out-of-mesh points: nearest-node extrapolation
+                d2 = np.sum((self.nodes - pts[i]) ** 2, axis=1)
+                nearest_ids[i] = int(np.argmin(d2))
+
+        return {
+            "points": pts,
+            "elem_ids": elem_ids,
+            "weights": weights,
+            "nearest_ids": nearest_ids,
+        }
+
+    # ------------------------------------------------------------------
+    def evaluate_from_point_map(self, point_map, values):
+        """Evaluate nodal field ``values`` using a map from ``precompute_point_map``."""
+        vals = np.asarray(values, dtype=float)
+        elem_ids = np.asarray(point_map["elem_ids"], dtype=int)
+        weights = np.asarray(point_map["weights"], dtype=float)
+        nearest_ids = np.asarray(point_map["nearest_ids"], dtype=int)
+
+        if vals.ndim != 1:
+            raise ValueError(f"values must be 1D, got shape={vals.shape}")
+
+        out = np.full(len(elem_ids), np.nan, dtype=float)
+        valid = elem_ids >= 0
+        if np.any(valid):
+            conn = self.elements[elem_ids[valid]]
+            out[valid] = np.einsum("ij,ij->i", weights[valid], vals[conn])
+
+        invalid = ~valid
+        if np.any(invalid):
+            nid = nearest_ids[invalid]
+            ok = nid >= 0
+            if np.any(ok):
+                tmp = out[invalid]
+                tmp[ok] = vals[nid[ok]]
+                out[invalid] = tmp
+
+        return out
+
+    # ------------------------------------------------------------------
     def __call__(self, points):
         points = np.atleast_2d(points)
         result = np.full(len(points), np.nan, dtype=float)

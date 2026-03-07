@@ -113,6 +113,9 @@ def jobset(job):
     st.hG  = st.hL * st.rGL * math.sqrt(0.97)
     st.nLr = st.aL + st.lL
 
+    if int(getattr(st, "domain_target_x_auto_from_crack", 1)) == 1:
+        st.domain_target_x = 1.5 * float(st.c_crack)
+
     if int(getattr(st, "auto_global_domain", 1)) == 1:
         st.nPtsX, st.nelemX, st.domain_x_actual = _compute_ctrlpts_from_target_length(
             float(st.domain_target_x), float(st.hG), int(st.p)

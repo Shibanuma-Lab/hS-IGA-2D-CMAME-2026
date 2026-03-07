@@ -7,6 +7,7 @@ import core.state as st
 from utils.interpolator import BilinearQuadInterpolator, LinearDelaunayInterpolator
 from pathlib import Path
 from boundary.node_selector import find_nodes_on_extreme
+from config.fem_data import get_fem_step_displacement
 
 
 def boundarysFEM(step):
@@ -44,23 +45,21 @@ def boundarysFEM(step):
     else:
         # FEM interpolators - select based on st.interpolator_type
         interpolator_type = getattr(st, 'interpolator_type', 'delaunay')  # Default to delaunay
+        dis_step = get_fem_step_displacement(step)
         
         if interpolator_type == "delaunay":
             IntpdisGx = LinearDelaunayInterpolator(
-                st.nodeFEM, st.disFEMsolutionAll[step, :, 0], name="FEM_x")
+                st.nodeFEM, dis_step[:, 0], name="FEM_x")
             IntpdisGy = LinearDelaunayInterpolator(
-                st.nodeFEM, st.disFEMsolutionAll[step, :, 1], name="FEM_y")
+                st.nodeFEM, dis_step[:, 1], name="FEM_y")
+            ebcs1 = [[nid, 1, IntpdisGx(st.nodeG[nid])] for nid in FEMbc]
+            ebcs2 = [[nid, 2, IntpdisGy(st.nodeG[nid])] for nid in FEMbc]
         elif interpolator_type == "bilinear":
-            IntpdisGx = BilinearQuadInterpolator(
-                st.nodeFEM, st.elemFEM, st.disFEMsolutionAll[step, :, 0], name="FEM_x")
-            IntpdisGy = BilinearQuadInterpolator(
-                st.nodeFEM, st.elemFEM, st.disFEMsolutionAll[step, :, 1], name="FEM_y")
+            bc_x, bc_y = _interpolate_bilinear_cached(FEMbc, dis_step)
+            ebcs1 = [[int(nid), 1, float(val)] for nid, val in zip(FEMbc, bc_x)]
+            ebcs2 = [[int(nid), 2, float(val)] for nid, val in zip(FEMbc, bc_y)]
         else:
             raise ValueError(f"Unknown interpolator_type: {interpolator_type}. Use 'delaunay' or 'bilinear'.")
-        
-        # Construct ebc using interpolation
-        ebcs1 = [[nid, 1, IntpdisGx(st.nodeG[nid])] for nid in FEMbc]
-        ebcs2 = [[nid, 2, IntpdisGy(st.nodeG[nid])] for nid in FEMbc]
 
     # ---- Global fixity ----
     fixbcX = sorted(list(set(leftNodes) - set(upNodes)))
@@ -115,6 +114,48 @@ def boundarysFEM(step):
     st.ebc = np.array(ebcs1 + ebcs2 + ebcs3 + ebcs4 + ebcs5 + ebcs6, dtype=float)
 
     st.nbc = np.array([[1.0, 1.0, 0.0]], dtype=float)
+
+
+def _interpolate_bilinear_cached(FEMbc, dis_step):
+    cache = getattr(st, "_fem_bilinear_bc_cache", None)
+    fembc_ids = np.asarray(FEMbc, dtype=int).ravel()
+    mesh_sig = (
+        id(st.nodeFEM),
+        id(st.elemFEM),
+        int(len(st.nodeFEM)),
+        int(len(st.elemFEM)),
+    )
+
+    needs_rebuild = (
+        cache is None
+        or cache.get("mesh_sig") != mesh_sig
+        or cache.get("n_query") != int(len(fembc_ids))
+        or not np.array_equal(cache.get("fembc_ids"), fembc_ids)
+    )
+
+    if needs_rebuild:
+        interp = BilinearQuadInterpolator(
+            st.nodeFEM,
+            st.elemFEM,
+            np.zeros(len(st.nodeFEM), dtype=float),
+            name="FEM_bc",
+        )
+        query_points = np.asarray([st.nodeG[int(nid)] for nid in fembc_ids], dtype=float)
+        point_map = interp.precompute_point_map(query_points)
+        cache = {
+            "mesh_sig": mesh_sig,
+            "n_query": int(len(fembc_ids)),
+            "fembc_ids": fembc_ids.copy(),
+            "interp": interp,
+            "point_map": point_map,
+        }
+        st._fem_bilinear_bc_cache = cache
+
+    vals_x = np.asarray(dis_step[:, 0], dtype=float)
+    vals_y = np.asarray(dis_step[:, 1], dtype=float)
+    out_x = cache["interp"].evaluate_from_point_map(cache["point_map"], vals_x)
+    out_y = cache["interp"].evaluate_from_point_map(cache["point_map"], vals_y)
+    return out_x, out_y
 
 
 def _load_precomputed_bc(step):

@@ -17,6 +17,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 
 import core.state as st
+from utils.fem_struct_h5 import FEMH5Projected2D
 from utils.fem_struct_mat import load_fem_struct_mat
 from utils.shape_functions import GP, GW, shp, Dshp, enlarge
 
@@ -653,11 +654,11 @@ def calculate_jintegral_2d(
 
 
 class JIntegral2DFEMReference(JIntegral2D):
-    """J-integral calculator for reference FEM results stored in a MATLAB .mat file."""
+    """J-integral calculator for reference FEM results from MAT or H5 source."""
 
     def __init__(
         self,
-        fem_mat_file: Path,
+        fem_reference_file: Path,
         step_start: int = 0,
         step_end: Optional[int] = None,
         Rj0: float = 1.5,
@@ -665,12 +666,14 @@ class JIntegral2DFEMReference(JIntegral2D):
         result_dir: Optional[Path] = None,
         extend_symmetric: bool = False,
     ):
-        self.fem_mat_file = Path(fem_mat_file)
+        self.fem_reference_file = Path(fem_reference_file)
+        self.reference_kind: Optional[str] = None
         self.node_fem: Optional[np.ndarray] = None
         self.elem_fem: Optional[np.ndarray] = None
         self.dis_fem_all: Optional[np.ndarray] = None
         self.vel_fem_all: Optional[np.ndarray] = None
         self.acce_fem_all: Optional[np.ndarray] = None
+        self.h5_reader: Optional[FEMH5Projected2D] = None
 
         super().__init__(
             step_start=step_start,
@@ -681,17 +684,38 @@ class JIntegral2DFEMReference(JIntegral2D):
             use_saved_files=False,
             extend_symmetric=extend_symmetric,
         )
-        self._load_fem_mat()
+        self._load_fem_reference()
 
-    def _load_fem_mat(self) -> None:
-        fem = load_fem_struct_mat(self.fem_mat_file, require_dynamic_fields=True)
+    def _load_fem_reference(self) -> None:
+        source = self.fem_reference_file
+        if source.is_dir() or source.suffix.lower() == ".h5":
+            self.h5_reader = FEMH5Projected2D(
+                source,
+                plane_z=getattr(st, "fem_h5_plane_z", 0.0),
+                plane_tol=getattr(st, "fem_h5_plane_tol", None),
+            )
+            self.node_fem = self.h5_reader.node
+            self.elem_fem = self.h5_reader.elem
+            self.reference_kind = "h5"
+            return
+
+        fem = load_fem_struct_mat(source, require_dynamic_fields=True)
         self.node_fem = fem["node"]
         self.elem_fem = fem["elem"]
         self.dis_fem_all = fem["dis"]
         self.vel_fem_all = fem["vel"]
         self.acce_fem_all = fem["acce"]
+        self.reference_kind = "mat"
 
     def _available_steps(self) -> List[int]:
+        if self.h5_reader is not None:
+            steps_all = self.h5_reader.available_steps
+            if len(steps_all) == 0:
+                return []
+            smin = int(self.step_start)
+            smax = int(self.h5_reader.max_step) if self.step_end is None else int(self.step_end)
+            return [s for s in steps_all if smin <= int(s) <= smax]
+
         if self.dis_fem_all is None:
             return []
         nstep = int(self.dis_fem_all.shape[0])
@@ -706,10 +730,19 @@ class JIntegral2DFEMReference(JIntegral2D):
     def _get_step_data(self, step: int) -> StepData:
         if self.node_fem is None or self.elem_fem is None:
             raise RuntimeError("FEM reference data not loaded.")
-        if self.dis_fem_all is None or self.vel_fem_all is None or self.acce_fem_all is None:
-            raise RuntimeError("FEM reference fields not loaded.")
 
         s = int(step)
+        if self.h5_reader is not None:
+            return StepData(
+                node=self.node_fem,
+                elem=self.elem_fem,
+                dis=np.asarray(self.h5_reader.get_field(s, "dis"), dtype=float),
+                vel=np.asarray(self.h5_reader.get_field(s, "vel"), dtype=float),
+                acce=np.asarray(self.h5_reader.get_field(s, "acce"), dtype=float),
+            )
+
+        if self.dis_fem_all is None or self.vel_fem_all is None or self.acce_fem_all is None:
+            raise RuntimeError("FEM reference fields not loaded.")
         if s < 0 or s >= self.dis_fem_all.shape[0]:
             raise IndexError(f"Step {s} out of range [0, {self.dis_fem_all.shape[0] - 1}]")
 
@@ -722,6 +755,29 @@ class JIntegral2DFEMReference(JIntegral2D):
         )
 
 
+def calculate_jintegral_2d_fem_reference(
+    fem_reference_file: Path,
+    step_start: int = 0,
+    step_end: Optional[int] = None,
+    Rj0: float = 1.5,
+    Rj1: float = 1.515,
+    result_dir: Optional[Path] = None,
+    output_file: Optional[Path] = None,
+    extend_symmetric: bool = False,
+) -> List[Dict[str, float]]:
+    """Calculate J-integral / DSIF for reference FEM results from MAT or H5."""
+    calc = JIntegral2DFEMReference(
+        fem_reference_file=fem_reference_file,
+        step_start=step_start,
+        step_end=step_end,
+        Rj0=Rj0,
+        Rj1=Rj1,
+        result_dir=result_dir,
+        extend_symmetric=extend_symmetric,
+    )
+    return calc.run(output_file=output_file)
+
+
 def calculate_jintegral_2d_fem_from_mat(
     fem_mat_file: Path,
     step_start: int = 0,
@@ -732,17 +788,17 @@ def calculate_jintegral_2d_fem_from_mat(
     output_file: Optional[Path] = None,
     extend_symmetric: bool = False,
 ) -> List[Dict[str, float]]:
-    """Calculate J-integral / DSIF for reference FEM results from a MATLAB file."""
-    calc = JIntegral2DFEMReference(
-        fem_mat_file=fem_mat_file,
+    """Backward-compatible wrapper. Supports MAT path or H5 directory."""
+    return calculate_jintegral_2d_fem_reference(
+        fem_reference_file=fem_mat_file,
         step_start=step_start,
         step_end=step_end,
         Rj0=Rj0,
         Rj1=Rj1,
         result_dir=result_dir,
+        output_file=output_file,
         extend_symmetric=extend_symmetric,
     )
-    return calc.run(output_file=output_file)
 
 
 def compare_jintegral_results(

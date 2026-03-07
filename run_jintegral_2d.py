@@ -26,7 +26,7 @@ from config.parameters import load_parameters
 from core.jobset import jobset
 from postprocess.jintegral_2d import (
     calculate_jintegral_2d,
-    calculate_jintegral_2d_fem_from_mat,
+    calculate_jintegral_2d_fem_reference,
     compare_jintegral_results,
 )
 
@@ -303,7 +303,7 @@ def main() -> None:
         "--fem-mat",
         type=Path,
         default=Path("FEM_data/uvaG2DAllFEM2D_v_400_a_20.mat"),
-        help="Reference FEM .mat file containing elem/node/u/v/a arrays",
+        help="Reference FEM source path (.mat file or h5 directory)",
     )
     parser.add_argument("--fem-output", type=Path, default=None, help="Output CSV path for FEM J/K results")
     parser.add_argument("--compare-output", type=Path, default=None, help="Output CSV path for normalized comparison")
@@ -360,8 +360,8 @@ def main() -> None:
                 cmp_output = result_dir / f"J_integral_2D_compare_hs_vs_FEM_v{int(st.v)}_rGL{int(st.rGL)}.csv"
 
             print(f"[JINT] FEM ref:    {fem_mat}")
-            fem_results = calculate_jintegral_2d_fem_from_mat(
-                fem_mat_file=fem_mat,
+            fem_results = calculate_jintegral_2d_fem_reference(
+                fem_reference_file=fem_mat,
                 step_start=int(args.step_start),
                 step_end=args.step_end,
                 Rj0=Rj0,

@@ -18,7 +18,7 @@ def load_parameters(rGL_value=2):
     st.dmat = 2                        # 1: plane stress, 2: plane strain
     st.SigmaInfinity = 1.0e11          # Far-field uniform stress [Pa]
     st.Sigma_app = st.SigmaInfinity    # Applied load stress [Pa]
-    st.c_crack = 10.0e-3               # Crack length [m]
+    st.c_crack = 50.0e-3               # Crack length [m]
     st.nu = 0.3                        # Poisson's ratio
     st.EE = 2.06e11                    # Young's modulus [Pa]
     st.SigmaY0 = 400.0e6               # Yield stress [Pa] (unused)
@@ -30,7 +30,10 @@ def load_parameters(rGL_value=2):
     st.nPtsY = 7    # fallback value when auto_global_domain=0
     st.hL = 0.05e-3
     st.auto_global_domain = 1
-    st.domain_target_x = 15.0e-3
+    # Global x-domain follows crack length by default:
+    #   Lx = 1.5 * c_crack
+    st.domain_target_x_auto_from_crack = 1
+    st.domain_target_x = 1.5 * st.c_crack
     st.domain_target_y = 2.5e-3
 
     # Scale / ratio
@@ -57,7 +60,7 @@ def load_parameters(rGL_value=2):
     # Analysis control
     st.inc = 1
     st.hrefLlist = 1
-    st.vlist = 500.0                   # Crack velocity [m/s]
+    st.vlist = 1000.0                   # Crack velocity [m/s]
     if isinstance(st.vlist, (list, tuple, np.ndarray)):
         st.v = int(float(st.vlist[0]))
     else:
@@ -75,9 +78,17 @@ def load_parameters(rGL_value=2):
     st.interpolator_type = "bilinear"  # Default: Delaunay (Mathematica-compatible)
 
     # FEM reference input (single source for BC interpolation + FEM J-integral)
-    # "auto" => FEM_data/{prefix}_v_{int(st.v)}_a_{int(st.c_crack*1000)}.mat
+    # "auto" mode:
+    #   - if c_crack <= fem_mat_max_crack_mm: MAT
+    #   - else: H5 directory FEM_data/h5_export_v{int(st.v)}
     st.fem_mat_prefix = "uvaG2DAllFEM2D"
     st.fem_mat_file = "auto"
+    st.fem_reference_source = "auto"   # auto | mat | h5
+    st.fem_h5_dir_prefix = "h5_export_v"
+    st.fem_h5_dir = "auto"
+    st.fem_h5_plane_z = 0.0
+    st.fem_h5_plane_tol = None
+    st.fem_mat_max_crack_mm = 10
 
     # Optional absolute tolerance override for geometric boundary node selection.
     # None => auto tolerance based on control-point spacing.
@@ -96,8 +107,9 @@ def load_parameters(rGL_value=2):
 
     # Step management
     st.stepini = 0
-    st.stepend = 200
-    st.stepall = st.stepend
+    # -1 => run all steps, where stepall = round(c_crack / hL)
+    st.stepend = 2
+    st.stepall = int(round(st.c_crack / st.hL))
     st.step_label_fem = 200            # Legacy parameter (kept for compatibility)
     st.REstart = 0
 
@@ -128,6 +140,7 @@ def load_parameters(rGL_value=2):
     st.jintegral_save_extended = 1
     # 1: also calculate FEM reference and hS/FEM normalized comparison in main.py
     st.jintegral_compare_fem = 1
+    # FEM reference for J-integral comparison (supports .mat file or H5 directory)
     st.jintegral_fem_mat_file = "auto"
 
     # Job management
