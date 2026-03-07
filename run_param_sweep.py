@@ -48,6 +48,18 @@ def _folder_name(v: float, case: SweepCase) -> str:
     return f"v_{int(v)}_rGL_{case.rGL}_aL_{case.aL}_lL_{case.lL}_HL_{case.HL}"
 
 
+def _rgl_sweep_lL(rgl: int) -> int:
+    """
+    lL rule for rGL-sweep cases.
+
+    Keep the ratio-based rule by default, but force rGL=2/3 to lL=5 to
+    ensure enough local nodes ahead of crack tip for stress-error extraction.
+    """
+    if int(rgl) in (2, 3):
+        return 5
+    return _ceil_mul(int(rgl), 1.2)
+
+
 def build_sweep_cases(base_rGL: int = 6, ll_values: Sequence[int] | None = None) -> List[SweepCase]:
     """
     Build the 4 sweep groups in order.
@@ -68,7 +80,7 @@ def build_sweep_cases(base_rGL: int = 6, ll_values: Sequence[int] | None = None)
                 label=f"rGL={r}",
                 rGL=int(r),
                 aL=_ceil_mul(r, 2.5),
-                lL=_ceil_mul(r, 1.2),
+                lL=_rgl_sweep_lL(r),
                 HL=_ceil_mul(r, 1.8),
             )
         )
