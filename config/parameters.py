@@ -11,6 +11,16 @@ import core.state as st
 
 def load_parameters(rGL_value=2):
     """Populate ``core.state`` with default simulation parameters."""
+    st.c_crack = 50.0e-3               # Crack length [m]
+    st.hL = 0.05e-3
+    st.vlist = 1000.0                   # Crack velocity [m/s]
+
+    # Step management
+    st.stepini = 0
+    # -1 => run all steps, where stepall = round(c_crack / hL)
+    st.stepend = -1
+    st.stepall = int(round(st.c_crack / st.hL))
+    st.REstart = 0
 
     st.p = 2
     st.q = 2
@@ -18,7 +28,6 @@ def load_parameters(rGL_value=2):
     st.dmat = 2                        # 1: plane stress, 2: plane strain
     st.SigmaInfinity = 1.0e11          # Far-field uniform stress [Pa]
     st.Sigma_app = st.SigmaInfinity    # Applied load stress [Pa]
-    st.c_crack = 50.0e-3               # Crack length [m]
     st.nu = 0.3                        # Poisson's ratio
     st.EE = 2.06e11                    # Young's modulus [Pa]
     st.SigmaY0 = 400.0e6               # Yield stress [Pa] (unused)
@@ -28,7 +37,6 @@ def load_parameters(rGL_value=2):
     # IGA mesh (global nPtsX/nPtsY will be auto-derived in jobset from target size)
     st.nPtsX = 120  # fallback value when auto_global_domain=0
     st.nPtsY = 7    # fallback value when auto_global_domain=0
-    st.hL = 0.05e-3
     st.auto_global_domain = 1
     # Global x-domain follows crack length by default:
     #   Lx = 1.5 * c_crack
@@ -39,7 +47,7 @@ def load_parameters(rGL_value=2):
     # Scale / ratio
     st.rGLlist = rGL_value
     st.hG = st.hL * st.rGLlist * math.sqrt(0.97)  # Global mesh element size
-    st.HLlist = math.ceil((12/10)*st.rGLlist)      # Ensure HL >= 1.8 * rGL
+    st.HLlist = math.ceil((18/10)*st.rGLlist)      # Ensure HL >= 1.8 * rGL
     st.lLlist = 15
     st.aLlist = math.ceil((25/10)*st.rGLlist)      # Ensure aL >= 2.5 * rGL
 
@@ -60,7 +68,7 @@ def load_parameters(rGL_value=2):
     # Analysis control
     st.inc = 1
     st.hrefLlist = 1
-    st.vlist = 1000.0                   # Crack velocity [m/s]
+
     if isinstance(st.vlist, (list, tuple, np.ndarray)):
         st.v = int(float(st.vlist[0]))
     else:
@@ -104,14 +112,6 @@ def load_parameters(rGL_value=2):
     # Method switches
     st.islocallist = 1                 # 0: Standard FEM, 1: S-version FEM
     st.isdynamiclist = 1               # 0: Static, 1: Static-Dynamic
-
-    # Step management
-    st.stepini = 0
-    # -1 => run all steps, where stepall = round(c_crack / hL)
-    st.stepend = 2
-    st.stepall = int(round(st.c_crack / st.hL))
-    st.step_label_fem = 200            # Legacy parameter (kept for compatibility)
-    st.REstart = 0
 
     # Post-processing / saving
     st.postprocess = 0

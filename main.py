@@ -225,7 +225,7 @@ def execution():
 # ====================================================================
 if __name__ == "__main__":
     # 1) Load parameters (rGL value can be changed here)
-    load_parameters(rGL_value=8)
+    load_parameters(rGL_value=6)
 
     # 2) Run simulation (FEM mat is loaded per job after jobset)
     execution()
