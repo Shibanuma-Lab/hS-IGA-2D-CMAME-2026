@@ -13,7 +13,7 @@ def load_parameters(rGL_value=2):
     """Populate ``core.state`` with default simulation parameters."""
     st.c_crack = 50.0e-3               # Crack length [m]
     st.hL = 0.05e-3
-    st.vlist = 1000.0                   # Crack velocity [m/s]
+    st.vlist = 500.0                   # Crack velocity [m/s]
 
     # Step management
     st.stepini = 0
@@ -48,7 +48,7 @@ def load_parameters(rGL_value=2):
     st.rGLlist = rGL_value
     st.hG = st.hL * st.rGLlist * math.sqrt(0.97)  # Global mesh element size
     st.HLlist = math.ceil((18/10)*st.rGLlist)      # Ensure HL >= 1.8 * rGL
-    st.lLlist = 15
+    st.lLlist = math.ceil((12/10)*st.rGLlist)
     st.aLlist = math.ceil((25/10)*st.rGLlist)      # Ensure aL >= 2.5 * rGL
 
     # HHT-alpha method (alpha=-0.02 for numerical damping)
@@ -91,9 +91,9 @@ def load_parameters(rGL_value=2):
     #   - else: H5 directory FEM_data/h5_export_v{int(st.v)}
     st.fem_mat_prefix = "uvaG2DAllFEM2D"
     st.fem_mat_file = "auto"
-    st.fem_reference_source = "auto"   # auto | mat | h5
+    st.fem_reference_source = "h5"   # auto | mat | h5
     st.fem_h5_dir_prefix = "h5_export_v"
-    st.fem_h5_dir = "auto"
+    st.fem_h5_dir = "FEM_data/h5_export_v500_a_50"
     st.fem_h5_plane_z = 0.0
     st.fem_h5_plane_tol = None
     st.fem_mat_max_crack_mm = 10

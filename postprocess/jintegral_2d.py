@@ -463,20 +463,33 @@ class JIntegral2D:
             return self.EE
         return self.EE / (1.0 - self.nu ** 2)
 
-    def _calc_ki(self, J: float, v_override: Optional[float] = None) -> float:
+    def _calc_ki(
+        self,
+        J: float,
+        step: Optional[int] = None,
+        v_override: Optional[float] = None,
+    ) -> float:
         if J <= 0.0:
             return 0.0
 
-        # Static limit at v=0: use the classical relation K^2 = E' * J.
-        if v_override is not None and abs(float(v_override)) < 1e-14:
+        v_eff = self.v if v_override is None else float(v_override)
+        is_static_step = (step is not None and int(step) == 0)
+        is_zero_speed = abs(float(v_eff)) < 1e-14
+
+        # Static case:
+        # - step == 0, or
+        # - crack speed v == 0
+        # K^2 = E' * J, with E' = E/(1-nu^2) for plane strain.
+        if is_static_step or is_zero_speed:
             Eeff = self._effective_modulus()
             return float(np.sqrt(Eeff * J))
 
-        AI = self._dynamic_factor_AI(v_override=v_override)
+        # Dynamic case (step >= 1 and v > 0), matching Mathematica:
+        # K^2 = E * J / ((1 + nu) * AI)
+        AI = self._dynamic_factor_AI(v_override=v_eff)
         if not np.isfinite(AI) or AI <= 0.0:
             return 0.0
-        Eeff = self._effective_modulus()
-        return float(np.sqrt(Eeff * J / AI))
+        return float(np.sqrt(self.EE * J / ((1.0 + self.nu) * AI)))
 
     def calc_J_single_step(self, step: int) -> Dict[str, float]:
         """Calculate J-integral and DSIF for one step."""
@@ -561,12 +574,11 @@ class JIntegral2D:
 
         # Step 0 is static initialization:
         # - ignore dynamic J contribution
-        # - evaluate K_I with crack speed v=0
         if int(step) == 0:
             J_dynamic = 0.0
             J_total = J_static
 
-        K_I = self._calc_ki(J_total, v_override=(0.0 if int(step) == 0 else None))
+        K_I = self._calc_ki(J_total, step=step)
 
         return {
             "step": int(step),
