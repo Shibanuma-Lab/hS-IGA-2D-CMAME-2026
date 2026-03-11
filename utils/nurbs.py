@@ -9,16 +9,19 @@ import numpy as np
 
 def BasisFuns(span, u, p, U):
     """Evaluate nonzero B-spline basis functions N_{span-p} … N_{span} at *u*."""
+    U = np.asarray(U, dtype=float)
     N = np.zeros(p + 1)
     left = np.zeros(p + 1)
     right = np.zeros(p + 1)
     N[0] = 1.0
+    eps = 1.0e-14
     for j in range(1, p + 1):
         left[j] = u - U[span + 1 - j]
         right[j] = U[span + j] - u
         saved = 0.0
         for r in range(0, j):
-            temp = N[r] / (right[r + 1] + left[j - r])
+            denom = right[r + 1] + left[j - r]
+            temp = N[r] / denom if abs(denom) > eps else 0.0
             N[r] = saved + right[r + 1] * temp
             saved = left[j - r] * temp
         N[j] = saved
@@ -93,9 +96,11 @@ def DerBasisFuns(span, u, p, order, U):
 def FindSpanMinus(n, p, u, U, debug=False):
     """Find knot span index (binary search, 0-based)."""
     U = np.asarray(U, dtype=float)
-    if u >= U[n + 1]:
-        return n - 1
-    if u <= U[p]:
+    eps = 1.0e-14
+    # Right boundary follows the standard NURBS convention: return n (not n-1).
+    if u >= U[n + 1] - eps:
+        return n
+    if u <= U[p] + eps:
         return p
     low = p
     high = n + 1

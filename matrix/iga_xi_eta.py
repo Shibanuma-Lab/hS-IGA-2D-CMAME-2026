@@ -38,7 +38,11 @@ def IGAgemoGetXiEta(
         xiE = st.elRangeU[idu - 1]
         etaE = st.elRangeV[idv - 1]
 
-    out = np.array(init, dtype=float).copy()
+    out = np.asarray(init, dtype=float).reshape(-1).copy()
+    if out.size < 2 or not np.all(np.isfinite(out[:2])):
+        out = np.array([0.0, 0.0], dtype=float)
+    else:
+        out = out[:2]
     pos = np.asarray(pos, dtype=float)
 
     eps_p = 1e-11
@@ -112,7 +116,7 @@ def IGAgemoGetXiEta(
         if step_size < tolS:
             break
 
-    if it > 50 or nrmFr > 1e-6:
+    if debug and (it > 50 or nrmFr > 1e-6):
         print(f"[DIAG] IGAgemoGetXiEta: iter={it}, nrmFr={nrmFr:.2e}, e={e}")
 
     return out
