@@ -9,7 +9,8 @@ import numpy as np
 
 def BasisFuns(span, u, p, U):
     """Evaluate nonzero B-spline basis functions N_{span-p} … N_{span} at *u*."""
-    U = np.asarray(U, dtype=float)
+    if not isinstance(U, np.ndarray):
+        U = np.asarray(U, dtype=float)
     N = np.zeros(p + 1)
     left = np.zeros(p + 1)
     right = np.zeros(p + 1)
@@ -34,7 +35,8 @@ def DerBasisFuns(span, u, p, order, U):
 
     Returns ``ders[k, j]`` with k = 0 … order, j = 0 … p.
     """
-    U = np.asarray(U, dtype=float)
+    if not isinstance(U, np.ndarray):
+        U = np.asarray(U, dtype=float)
     nMat = np.zeros((p + 1, p + 1))
     left = np.zeros(p + 1)
     right = np.zeros(p + 1)
@@ -95,7 +97,8 @@ def DerBasisFuns(span, u, p, order, U):
 
 def FindSpanMinus(n, p, u, U, debug=False):
     """Find knot span index (binary search, 0-based)."""
-    U = np.asarray(U, dtype=float)
+    if not isinstance(U, np.ndarray):
+        U = np.asarray(U, dtype=float)
     eps = 1.0e-14
     # Right boundary follows the standard NURBS convention: return n (not n-1).
     if u >= U[n + 1] - eps:
@@ -125,9 +128,12 @@ def NURBS2DBasisDers(spanU, spanV, p, q, knotU, knotV,
 
     Returns (R, dRdxi, dRdeta), each of shape ((p+1)*(q+1),).
     """
-    knotU = np.asarray(knotU, dtype=float)
-    knotV = np.asarray(knotV, dtype=float)
-    weightsGlobal = np.asarray(weightsGlobal, dtype=float)
+    if not isinstance(knotU, np.ndarray):
+        knotU = np.asarray(knotU, dtype=float)
+    if not isinstance(knotV, np.ndarray):
+        knotV = np.asarray(knotV, dtype=float)
+    if not isinstance(weightsGlobal, np.ndarray):
+        weightsGlobal = np.asarray(weightsGlobal, dtype=float)
 
     # Local weight indices
     localIdx = []
