@@ -48,6 +48,11 @@ def _folder_name(v: float, case: SweepCase) -> str:
     return f"v_{int(v)}_rGL_{case.rGL}_aL_{case.aL}_lL_{case.lL}_HL_{case.HL}"
 
 
+def _fem_h5_dir_for_case(v: float, crack_mm: int) -> str:
+    """FEM H5 directory naming for parameter sweep cases."""
+    return f"FEM_data/h5_export_v{int(v)}_a_{int(crack_mm)}"
+
+
 def _rgl_sweep_lL(rgl: int) -> int:
     """
     lL rule for rGL-sweep cases.
@@ -161,7 +166,12 @@ def _configure_state_for_case(v: float, case: SweepCase) -> None:
         f"sweep_v{int(v)}_rGL{case.rGL}_aL{case.aL}_lL{case.lL}_HL{case.HL}"
     )
 
-    # Keep unified automatic MAT naming strategy.
+    # Force H5-only FEM reference for both BC interpolation and J-integral.
+    crack_mm = int(round(float(st.c_crack) * 1000.0))
+    st.fem_reference_source = "h5"
+    st.fem_h5_dir = _fem_h5_dir_for_case(v=v, crack_mm=crack_mm)
+
+    # Keep unified automatic FEM source resolution entry points.
     st.fem_mat_file = "auto"
     st.jintegral_fem_mat_file = "auto"
 
