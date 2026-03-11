@@ -2,10 +2,10 @@
 """
 Run baseline-parameter dynamic cases over a velocity sweep.
 
-Baseline (default):
+Baseline (default same as SFEM setting):
 - rGL = 6
 - aL = ceil(2.5 * rGL)
-- lL = ceil(1.2 * rGL)
+- lL = 15 (local elements)
 - HL = ceil(1.8 * rGL)
 - c_crack = 10 mm
 - stepend = -1 (stepall = round(c_crack / hL))
@@ -76,13 +76,13 @@ def _build_cases(
     velocities: Sequence[int],
     rgl: int,
     aL_ratio: float,
-    lL_ratio: float,
+    lL_const: int,
     HL_ratio: float,
     crack_mm: int,
     stepend: int,
 ) -> List[VelocityCase]:
     aL = _ceil_mul(rgl, aL_ratio)
-    lL = _ceil_mul(rgl, lL_ratio)
+    lL = int(lL_const)
     HL = _ceil_mul(rgl, HL_ratio)
 
     return [
@@ -264,7 +264,7 @@ def main() -> int:
 
     parser.add_argument("--rgl", type=int, default=6, help="Baseline rGL.")
     parser.add_argument("--al-ratio", type=float, default=2.5, help="aL ratio to rGL.")
-    parser.add_argument("--ll-ratio", type=float, default=1.2, help="lL ratio to rGL.")
+    parser.add_argument("--ll", type=int, default=15, help="Baseline constant lL (local elements).")
     parser.add_argument("--hl-ratio", type=float, default=1.8, help="HL ratio to rGL.")
 
     parser.add_argument("--crack-mm", type=int, default=10, help="Crack length in mm.")
@@ -304,7 +304,7 @@ def main() -> int:
         velocities=velocities,
         rgl=int(args.rgl),
         aL_ratio=float(args.al_ratio),
-        lL_ratio=float(args.ll_ratio),
+        lL_const=int(args.ll),
         HL_ratio=float(args.hl_ratio),
         crack_mm=int(args.crack_mm),
         stepend=int(args.stepend),
@@ -315,7 +315,7 @@ def main() -> int:
         "Baseline params:",
         f"rGL={args.rgl}",
         f"aL=ceil({args.al_ratio}*rGL)",
-        f"lL=ceil({args.ll_ratio}*rGL)",
+        f"lL={args.ll}",
         f"HL=ceil({args.hl_ratio}*rGL)",
         f"c_crack={args.crack_mm}mm",
         f"stepend={args.stepend}",
