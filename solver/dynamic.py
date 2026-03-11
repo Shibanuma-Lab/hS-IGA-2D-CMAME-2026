@@ -105,12 +105,29 @@ def solvedynamic():
                  - st.beta_rayleigh  * kkf @ (Vinif + b1 * Ainif)
                  - kkf @ (disinif + b2 * Vinif + b3 * Ainif))
 
-        # Diagnostics
+        # Optional diagnostics (disabled by default due high cost on large systems)
         try:
-            current_step = getattr(st, 'step', -1)
-            if current_step is not None and current_step >= 0 and (current_step % 10 == 0 or current_step > 95):
-                cond_num = np.linalg.cond(mcklf)
-                print(f"[DIAG] Step {current_step}: cond(mcklf)={cond_num:.2e}")
+            cond_diag_enable = int(getattr(st, "diag_cond_enable", 0)) == 1
+            if cond_diag_enable:
+                current_step = int(getattr(st, "step", -1))
+                cond_diag_start = int(getattr(st, "diag_cond_start", 95))
+                cond_diag_every = max(1, int(getattr(st, "diag_cond_every", 10)))
+                if (
+                    current_step >= cond_diag_start
+                    and (current_step - cond_diag_start) % cond_diag_every == 0
+                ):
+                    cond_diag_mode = str(getattr(st, "diag_cond_mode", "proxy")).strip().lower()
+                    if cond_diag_mode == "exact":
+                        cond_num = np.linalg.cond(mcklf)
+                        print(f"[DIAG] Step {current_step}: cond_exact(mcklf)={cond_num:.2e}")
+                    else:
+                        # Cheap proxy (one linear solve) to avoid SVD-level cost.
+                        rhs_probe = np.ones(mcklf.shape[0], dtype=float)
+                        sol_probe = np.linalg.solve(mcklf, rhs_probe)
+                        num = np.linalg.norm(mcklf, ord=np.inf) * np.linalg.norm(sol_probe, ord=np.inf)
+                        den = max(np.linalg.norm(rhs_probe, ord=np.inf), 1.0e-30)
+                        cond_proxy = num / den
+                        print(f"[DIAG] Step {current_step}: cond_proxy(mcklf)={cond_proxy:.2e}")
         except Exception:
             pass
 

@@ -31,8 +31,17 @@ def makeKGL():
         makeKGL6()
 
     try:
-        current_step = st.step
-        if current_step is not None and current_step >= 0 and (current_step % 10 == 0 or current_step > 95):
+        diag_kgl_enable = int(getattr(st, "diag_kgl_enable", 0)) == 1
+        if not diag_kgl_enable:
+            return
+
+        current_step = int(getattr(st, "step", -1))
+        diag_kgl_start = int(getattr(st, "diag_kgl_start", 95))
+        diag_kgl_every = max(1, int(getattr(st, "diag_kgl_every", 10)))
+        if (
+            current_step >= diag_kgl_start
+            and (current_step - diag_kgl_start) % diag_kgl_every == 0
+        ):
             if sp.issparse(st.KGL):
                 kgl_nnz = int(st.KGL.nnz)
                 kgl_max = float(np.max(np.abs(st.KGL.data))) if st.KGL.nnz > 0 else 0.0

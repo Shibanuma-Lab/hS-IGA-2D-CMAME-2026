@@ -120,6 +120,18 @@ def load_parameters(rGL_value=2):
     st.meshonly = 0
     st.debug_output = 1                # 1: Output detailed mesh/BC/initial info for each step (for debugging)
 
+    # Runtime diagnostics (can be expensive on large systems)
+    # Condition number check in solver/dynamic.py:
+    #   diag_cond_mode = "proxy" (cheap estimate) or "exact" (np.linalg.cond, very expensive)
+    st.diag_cond_enable = 0
+    st.diag_cond_start = 95
+    st.diag_cond_every = 10
+    st.diag_cond_mode = "proxy"
+    # KGL nnz/max diagnostics in matrix/make_KGL.py
+    st.diag_kgl_enable = 0
+    st.diag_kgl_start = 95
+    st.diag_kgl_every = 10
+
     # J-integral / DSIF post-processing
     # 1: calculate automatically at the end of each job in main.py
     st.calc_jintegral = 1
