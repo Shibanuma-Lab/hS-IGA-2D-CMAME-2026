@@ -67,6 +67,11 @@ def _parse_velocity_list(raw: str) -> List[int]:
     return list(dict.fromkeys(out))
 
 
+def _fem_h5_dir_for_case(case: VelocityCase) -> str:
+    """FEM H5 directory naming for velocity sweep cases."""
+    return f"FEM_data/h5_export_V_{int(case.v)}_a_{int(case.crack_mm)}"
+
+
 def _build_cases(
     velocities: Sequence[int],
     rgl: int,
@@ -123,6 +128,10 @@ def _configure_state_for_case(case: VelocityCase) -> None:
         f"velsweep_v{int(case.v)}_rGL{int(case.rGL)}_"
         f"aL{int(case.aL)}_lL{int(case.lL)}_HL{int(case.HL)}"
     )
+
+    # Force H5-only FEM reference for both BC interpolation and J-integral.
+    st.fem_reference_source = "h5"
+    st.fem_h5_dir = _fem_h5_dir_for_case(case)
 
     # FEM/J-integral reference paths by naming convention (auto)
     st.fem_mat_file = "auto"
