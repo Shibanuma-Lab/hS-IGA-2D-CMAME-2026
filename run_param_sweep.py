@@ -50,7 +50,7 @@ def _folder_name(v: float, case: SweepCase) -> str:
 
 def _fem_h5_dir_for_case(v: float, crack_mm: int) -> str:
     """FEM H5 directory naming for parameter sweep cases."""
-    return f"FEM_data/h5_export_v{int(v)}_a_{int(crack_mm)}"
+    return f"FEM_data/h5_export_V_{int(v)}_a_{int(crack_mm)}"
 
 
 def _rgl_sweep_lL(rgl: int) -> int:
