@@ -3,10 +3,10 @@
 Run baseline dynamic cases over an HHT-alpha sweep.
 
 Default baseline:
-- rGL = 6
-- aL = ceil(2.5 * rGL)
-- lL = 15 (local elements)
-- HL = ceil(1.8 * rGL)
+- rGL = 10
+- aL = ceil(3.5 * rGL)
+- lL = ceil(2.2 * rGL)
+- HL = ceil(2.4 * rGL)
 - c_crack = 10 mm
 - stepend = -1 (stepall = round(c_crack / hL))
 
@@ -101,13 +101,13 @@ def _build_cases(
     alphas: Sequence[float],
     rgl: int,
     aL_ratio: float,
-    lL_value: int,
+    lL_ratio: float,
     HL_ratio: float,
     crack_mm: int,
     stepend: int,
 ) -> List[HHTAlphaCase]:
     aL = _ceil_mul(rgl, aL_ratio)
-    lL = int(lL_value)
+    lL = _ceil_mul(rgl, lL_ratio)
     HL = _ceil_mul(rgl, HL_ratio)
 
     cases: List[HHTAlphaCase] = []
@@ -320,10 +320,10 @@ def main() -> int:
         help="Comma list of HHT alpha values, e.g. '0,-0.01,-0.02'.",
     )
 
-    parser.add_argument("--rgl", type=int, default=6, help="Baseline rGL.")
-    parser.add_argument("--al-ratio", type=float, default=2.5, help="aL ratio to rGL.")
-    parser.add_argument("--ll", type=int, default=15, help="Fixed lL (number of local elements).")
-    parser.add_argument("--hl-ratio", type=float, default=1.8, help="HL ratio to rGL.")
+    parser.add_argument("--rgl", type=int, default=10, help="Baseline rGL.")
+    parser.add_argument("--al-ratio", type=float, default=3.5, help="aL ratio to rGL.")
+    parser.add_argument("--ll-ratio", type=float, default=2.2, help="lL ratio to rGL.")
+    parser.add_argument("--hl-ratio", type=float, default=2.4, help="HL ratio to rGL.")
 
     parser.add_argument("--crack-mm", type=int, default=10, help="Crack length in mm.")
     parser.add_argument("--stepend", type=int, default=-1, help="Step end (-1 means auto by c_crack/hL).")
@@ -360,7 +360,7 @@ def main() -> int:
         alphas=alphas,
         rgl=int(args.rgl),
         aL_ratio=float(args.al_ratio),
-        lL_value=int(args.ll),
+        lL_ratio=float(args.ll_ratio),
         HL_ratio=float(args.hl_ratio),
         crack_mm=int(args.crack_mm),
         stepend=int(args.stepend),
@@ -371,7 +371,7 @@ def main() -> int:
         "Baseline params:",
         f"rGL={args.rgl}",
         f"aL=ceil({args.al_ratio}*rGL)",
-        f"lL={args.ll}",
+        f"lL=ceil({args.ll_ratio}*rGL)",
         f"HL=ceil({args.hl_ratio}*rGL)",
         f"c_crack={args.crack_mm}mm",
         f"stepend={args.stepend}",
