@@ -84,8 +84,12 @@ def _base_folder_name(case: HHTAlphaCase) -> str:
     )
 
 
+def _result_folder_tag(case: HHTAlphaCase) -> str:
+    return f"HHTa_{_alpha_label(case.alpha)}"
+
+
 def _result_folder_name(case: HHTAlphaCase) -> str:
-    return f"{_base_folder_name(case)}_HHTa_{_alpha_label(case.alpha)}"
+    return f"{_base_folder_name(case)}_{_result_folder_tag(case)}"
 
 
 def _fem_h5_dir_for_case(case: HHTAlphaCase) -> str:
@@ -154,6 +158,7 @@ def _configure_state_for_case(case: HHTAlphaCase) -> None:
 
     st.jobstart = 1
     st.jobend = 1
+    st.result_folder_tag = _result_folder_tag(case)
     st.jobnamelist = (
         f"hhtsweep_v{int(case.v)}_rGL{int(case.rGL)}_aL{int(case.aL)}_"
         f"lL{int(case.lL)}_HL{int(case.HL)}_alpha{_alpha_label(case.alpha)}"
@@ -210,7 +215,6 @@ def run_cases(
     for i, case in enumerate(cases, start=1):
         folder = _result_folder_name(case)
         folder_path = results_dir / folder
-        base_folder_path = results_dir / _base_folder_name(case)
 
         row = {
             "idx": str(i),
@@ -253,7 +257,6 @@ def run_cases(
         t0 = time.time()
         print(f"[{i:03d}/{len(cases):03d}] RUN  v={case.v}, alpha={case.alpha:+.3f} -> {folder}")
 
-        executed = False
         try:
             os.chdir(project_root)
             _configure_state_for_case(case)
@@ -272,31 +275,10 @@ def run_cases(
                 rows.append(row)
                 continue
 
-            # Avoid accidental overwrite from stale base-folder outputs.
-            if base_folder_path.exists():
-                if force:
-                    shutil.rmtree(base_folder_path)
-                else:
-                    raise FileExistsError(
-                        "Base result folder already exists before run: "
-                        f"{base_folder_path}. Use --force or clean it first."
-                    )
+            if folder_path.exists() and force:
+                shutil.rmtree(folder_path)
 
             execution()
-            executed = True
-
-            if not base_folder_path.exists():
-                raise FileNotFoundError(
-                    f"Expected base result folder not found after run: {base_folder_path}"
-                )
-
-            if folder_path.exists():
-                if force:
-                    shutil.rmtree(folder_path)
-                else:
-                    raise FileExistsError(f"Target result folder already exists: {folder_path}")
-
-            base_folder_path.rename(folder_path)
 
             elapsed = time.time() - t0
             row["status"] = "done"
@@ -311,18 +293,6 @@ def run_cases(
             row["message"] = f"{type(exc).__name__}: {exc}"
             print(f"[{i:03d}/{len(cases):03d}] FAIL v={case.v}, alpha={case.alpha:+.3f}: {row['message']}")
             traceback.print_exc()
-
-            # Keep failed run artifacts by moving base folder to a dedicated failed folder.
-            if executed and base_folder_path.exists():
-                failed_folder = results_dir / f"{folder}_failed"
-                try:
-                    if failed_folder.exists() and force:
-                        shutil.rmtree(failed_folder)
-                    if not failed_folder.exists():
-                        base_folder_path.rename(failed_folder)
-                        row["message"] += f" | partial_outputs={failed_folder.name}"
-                except Exception:
-                    pass
 
         finally:
             os.chdir(project_root)

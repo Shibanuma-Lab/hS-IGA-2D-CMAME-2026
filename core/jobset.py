@@ -89,6 +89,9 @@ def jobset(job):
     # ---------------- directories ----------------
     # Build parameter-based folder name
     folder_name = f"v_{int(st.v)}_rGL_{st.rGL}_aL_{st.aL}_lL_{st.lL}_HL_{st.HL}"
+    folder_tag = str(getattr(st, "result_folder_tag", "")).strip()
+    if folder_tag != "":
+        folder_name = f"{folder_name}_{folder_tag}"
     results_dir = Path.cwd() / "results"
     results_dir.mkdir(parents=True, exist_ok=True)
     

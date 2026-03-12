@@ -155,6 +155,10 @@ def load_parameters(rGL_value=2):
     # FEM reference for J-integral comparison (supports .mat file or H5 directory)
     st.jintegral_fem_mat_file = "auto"
 
+    # Optional suffix appended to result folder name in jobset.
+    # Keep empty by default; sweep scripts can override per case.
+    st.result_folder_tag = ""
+
     # Job management
     st.jobnamelist = f"Default_v_{st.vlist}_rGL{st.rGLlist}_"
     st.jobstart = 1
