@@ -16,7 +16,7 @@ def IGAgemoGetXiEta(
     e, pos, init, debug=False,
     *,
     xiE=None, etaE=None, coord=None, uspan=None, vspan=None,
-    tolR=1.0e-12, tolS=1.0e-12, max_iter=100000, damp=0.5,
+    tolR=1.0e-12, tolS=1.0e-12, max_iter=5000, damp=0.5,
     prLo=-1.0, prHi=1.0, eps=1.0e-12
 ):
     """
@@ -88,6 +88,11 @@ def IGAgemoGetXiEta(
             break
 
         dNbf = np.vstack([dNdxi, dNdeta])
+        # Chain rule: unknowns are parent-space coords (out),
+        # while NURBS2DBasisDers returns derivatives wrt parametric Xi/Eta.
+        # Xi = map(xiE, out[0]), Eta = map(etaE, out[1]).
+        dNbf[0, :] *= 0.5 * (xiE[1] - xiE[0])
+        dNbf[1, :] *= 0.5 * (etaE[1] - etaE[0])
         a = dNbf[0, :] @ coord[:, 0]
         b = dNbf[0, :] @ coord[:, 1]
         c = dNbf[1, :] @ coord[:, 0]

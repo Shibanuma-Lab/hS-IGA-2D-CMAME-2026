@@ -36,7 +36,9 @@ def _rational_basis_from_tensor(nx, ny, dnx, dny, weight_local):
 def makeKG():
     """Assemble global stiffness ``st.KG`` and mass ``st.MG``."""
 
-    st.nGPs = 3
+    st.nGPs = int(getattr(st, "ngpG", 3))
+    if st.nGPs <= 0:
+        raise ValueError(f"Invalid global Gauss order ngpG={st.nGPs}")
     st.ndof = 2
     st.nCtrPts = st.nPtsX * st.nPtsY
     st.neqG = st.nCtrPts * st.ndof
