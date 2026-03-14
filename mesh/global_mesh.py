@@ -88,6 +88,25 @@ def _buildVisual2Dmesh(controlPts_, weights_, uKnot_, vKnot_, p_, q_):
 
 
 # ------------------------------------------------------------------
+def _open_uniform_knot(n_ctrl_pts: int, degree: int):
+    """
+    Build an open-uniform knot vector for a B-spline/NURBS curve.
+
+    For n control points and degree p:
+    - number of elements = n - p
+    - start/end multiplicity = p + 1
+    """
+    if int(n_ctrl_pts) <= int(degree):
+        raise ValueError(
+            f"Invalid knot setup: n_ctrl_pts({n_ctrl_pts}) must be > degree({degree})"
+        )
+
+    nelem = int(n_ctrl_pts) - int(degree)
+    interior = [i / float(nelem) for i in range(1, nelem)]
+    return [0.0] * (int(degree) + 1) + interior + [1.0] * (int(degree) + 1)
+
+
+# ------------------------------------------------------------------
 def makeGlobalMesh(hG, nnx, nny):
     """Create the global IGA mesh and its Q4 visualisation mesh."""
 
@@ -96,12 +115,9 @@ def makeGlobalMesh(hG, nnx, nny):
     nPtsX = st.nPtsX
     nPtsY = st.nPtsY
 
-    # Knot vectors
-    knotUTemp = [i / (nPtsX - p) for i in range(0, (nPtsX - p) + 1)]
-    knotVTemp = [j / (nPtsY - q) for j in range(0, (nPtsY - q) + 1)]
-
-    st.uKnot = [0, 0] + list(knotUTemp) + [1, 1]
-    st.vKnot = [0, 0] + list(knotVTemp) + [1, 1]
+    # Knot vectors (open uniform, valid for arbitrary degree p/q).
+    st.uKnot = _open_uniform_knot(nPtsX, p)
+    st.vKnot = _open_uniform_knot(nPtsY, q)
 
     st.uniqU = delete_duplicates_preserve_order(st.uKnot)
     st.nelemU = len(st.uniqU) - 1
