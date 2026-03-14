@@ -107,6 +107,33 @@ def _open_uniform_knot(n_ctrl_pts: int, degree: int):
 
 
 # ------------------------------------------------------------------
+def _greville_abscissae(knot_vec, degree: int, n_ctrl_pts: int):
+    """
+    Greville abscissae for open-uniform B-spline/NURBS control points.
+
+    This keeps linear geometry mapping for any polynomial degree, avoiding
+    degree-specific control-point placement artifacts.
+    """
+    p = int(degree)
+    n = int(n_ctrl_pts)
+    if p <= 0:
+        # p=0 is not used in this project, but keep a safe fallback.
+        if n <= 1:
+            return np.array([0.0], dtype=float)
+        return np.linspace(0.0, 1.0, n, dtype=float)
+
+    kv = np.asarray(knot_vec, dtype=float)
+    out = np.empty(n, dtype=float)
+    for i in range(n):
+        out[i] = float(np.sum(kv[i + 1 : i + p + 1]) / p)
+
+    # Clamp tiny floating drift at the ends.
+    out[0] = 0.0
+    out[-1] = 1.0
+    return out
+
+
+# ------------------------------------------------------------------
 def makeGlobalMesh(hG, nnx, nny):
     """Create the global IGA mesh and its Q4 visualisation mesh."""
 
@@ -132,25 +159,9 @@ def makeGlobalMesh(hG, nnx, nny):
     st.noU = nPtsX
     st.noV = nPtsY
 
-    nodex = []
-    for i in range(1, st.noU + 1):
-        if i == 1:
-            nodex.append(0.0)
-        elif i == st.noU:
-            nodex.append(Lx)
-        else:
-            nodex.append(Lx * (2 * (i - 1) - 1) / (2.0 * st.nelemU))
-    nodey = []
-    for j in range(1, st.noV + 1):
-        if j == 1:
-            nodey.append(0.0)
-        elif j == st.noV:
-            nodey.append(Ly)
-        else:
-            nodey.append(Ly * (2 * (j - 1) - 1) / (2.0 * st.nelemV))
-
-    nodex = np.array(nodex, dtype=float)
-    nodey = np.array(nodey, dtype=float)
+    # Degree-consistent control points via Greville abscissae.
+    nodex = Lx * _greville_abscissae(st.uKnot, p, st.noU)
+    nodey = Ly * _greville_abscissae(st.vKnot, q, st.noV)
     st.controlPts = np.array([[x, y] for y in nodey for x in nodex], dtype=float)
 
     st.elRangeU = [[st.uniqU[i], st.uniqU[i + 1]] for i in range(st.nelemU)]
