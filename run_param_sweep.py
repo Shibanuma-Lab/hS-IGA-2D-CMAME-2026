@@ -65,7 +65,7 @@ def _rgl_sweep_lL(rgl: int) -> int:
     return _ceil_mul(int(rgl), 1.2)
 
 
-def build_sweep_cases(base_rGL: int = 6, ll_values: Sequence[int] | None = None) -> List[SweepCase]:
+def build_sweep_cases(base_rGL: int = 8, ll_values: Sequence[int] | None = None) -> List[SweepCase]:
     """
     Build the 4 sweep groups in order.
     """
@@ -304,7 +304,7 @@ def _parse_int_list(raw: str) -> List[int]:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run automated parameter-condition sweeps.")
     parser.add_argument("--v", type=float, default=500.0, help="Crack velocity value for this sweep.")
-    parser.add_argument("--base-rgl", type=int, default=6, help="Baseline rGL for non-rGL groups.")
+    parser.add_argument("--base-rgl", type=int, default=8, help="Baseline rGL for non-rGL groups.")
     parser.add_argument(
         "--groups",
         type=str,

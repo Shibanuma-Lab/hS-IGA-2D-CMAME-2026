@@ -11,7 +11,7 @@ import core.state as st
 
 def load_parameters(rGL_value=2):
     """Populate ``core.state`` with default simulation parameters."""
-    st.c_crack = 50.0e-3               # Crack length [m]
+    st.c_crack = 10.0e-3               # Crack length [m]
     st.hL = 0.05e-3
     st.vlist = 500.0                   # Crack velocity [m/s]
 
@@ -42,7 +42,7 @@ def load_parameters(rGL_value=2):
     #   Lx = 1.5 * c_crack
     st.domain_target_x_auto_from_crack = 1
     st.domain_target_x = 1.5 * st.c_crack
-    st.domain_target_y = 2.5e-3
+    st.domain_target_y = 2.8e-3
 
     # Scale / ratio
     st.rGLlist = rGL_value
