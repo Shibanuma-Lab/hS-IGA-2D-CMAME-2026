@@ -29,7 +29,12 @@ def getlist(value_or_list, job, list_name=""):
 
 
 # ------------------------------------------------------------------
-def _compute_ctrlpts_from_target_length(target_len: float, hG: float, degree: int):
+def _compute_ctrlpts_from_target_length(
+    target_len: float,
+    hG: float,
+    degree: int,
+    fit_mode: str = "closest",
+):
     """
     Compute number of elements/control points from target domain length.
 
@@ -43,10 +48,26 @@ def _compute_ctrlpts_from_target_length(target_len: float, hG: float, degree: in
         raise ValueError(f"hG must be > 0, got {hG}")
 
     ratio = float(target_len) / float(hG)
-    nelem = max(1, int(math.ceil(ratio - 1.0e-12)))
-    # Keep actual domain strictly larger than requested target.
-    if nelem * hG <= target_len:
-        nelem += 1
+    mode = str(fit_mode).strip().lower()
+    if mode == "nearest":
+        mode = "closest"
+
+    if mode == "cover":
+        nelem = max(1, int(math.ceil(ratio - 1.0e-12)))
+        # Keep actual domain strictly larger than requested target.
+        if nelem * hG <= target_len:
+            nelem += 1
+    elif mode == "closest":
+        lower = max(1, int(math.floor(ratio)))
+        upper = max(1, int(math.ceil(ratio)))
+        candidates = sorted({lower, upper})
+        # On exact tie, prefer the larger mesh for conservative coverage.
+        nelem = min(
+            candidates,
+            key=lambda n: (abs(float(n) * float(hG) - float(target_len)), -int(n)),
+        )
+    else:
+        raise ValueError(f"Unsupported global domain fit mode: {fit_mode}")
 
     npts = int(nelem + int(degree))
     actual_len = float(nelem) * float(hG)
@@ -117,18 +138,21 @@ def jobset(job):
     st.nLr = st.aL + st.lL
 
     if int(getattr(st, "domain_target_x_auto_from_crack", 1)) == 1:
-        st.domain_target_x = 1.5 * float(st.c_crack)
+        scale = float(getattr(st, "domain_target_x_from_crack_scale", 1.5))
+        st.domain_target_x = scale * float(st.c_crack)
 
     if int(getattr(st, "auto_global_domain", 1)) == 1:
+        fit_mode = str(getattr(st, "global_domain_fit_mode", "closest"))
         st.nPtsX, st.nelemX, st.domain_x_actual = _compute_ctrlpts_from_target_length(
-            float(st.domain_target_x), float(st.hG), int(st.p)
+            float(st.domain_target_x), float(st.hG), int(st.p), fit_mode=fit_mode
         )
         st.nPtsY, st.nelemY, st.domain_y_actual = _compute_ctrlpts_from_target_length(
-            float(st.domain_target_y), float(st.hG), int(st.q)
+            float(st.domain_target_y), float(st.hG), int(st.q), fit_mode=fit_mode
         )
 
         print(
             "Global domain auto-fit:",
+            f"mode={fit_mode}",
             f"Lx_target={st.domain_target_x:.6e}",
             f"Ly_target={st.domain_target_y:.6e}",
             f"-> Lx={st.domain_x_actual:.6e}",

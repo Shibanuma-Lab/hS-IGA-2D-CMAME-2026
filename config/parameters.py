@@ -39,10 +39,14 @@ def load_parameters(rGL_value=2):
     st.nPtsY = 7    # fallback value when auto_global_domain=0
     st.auto_global_domain = 1
     # Global x-domain follows crack length by default:
-    #   Lx = 1.5 * c_crack
+    #   Lx = domain_target_x_from_crack_scale * c_crack
     st.domain_target_x_auto_from_crack = 1
-    st.domain_target_x = 1.5 * st.c_crack
-    st.domain_target_y = 2.8e-3
+    st.domain_target_x_from_crack_scale = 1.8
+    st.domain_target_x = st.domain_target_x_from_crack_scale * st.c_crack
+    st.domain_target_y = 6.0e-3
+    # "closest": choose the nearest mesh to target, even if not fully covering.
+    # "cover"  : enforce actual domain > target domain.
+    st.global_domain_fit_mode = "closest"
 
     # Scale / ratio
     st.rGLlist = rGL_value

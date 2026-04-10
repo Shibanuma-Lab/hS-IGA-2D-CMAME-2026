@@ -119,7 +119,8 @@ def _configure_state_for_case(case: VelocityCase) -> None:
 
     # Keep target x-domain consistent when auto-from-crack mode is on.
     if int(getattr(st, "domain_target_x_auto_from_crack", 0)) == 1:
-        st.domain_target_x = 1.5 * float(st.c_crack)
+        scale = float(getattr(st, "domain_target_x_from_crack_scale", 1.5))
+        st.domain_target_x = scale * float(st.c_crack)
 
     # Single job
     st.jobstart = 1
