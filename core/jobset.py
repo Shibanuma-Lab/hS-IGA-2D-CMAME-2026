@@ -134,7 +134,7 @@ def jobset(job):
         st.xld.mkdir(exist_ok=True)
 
     # ---------------- scale / time step ----------------
-    st.hG  = st.hL * st.rGL * math.sqrt(0.97)
+    st.hG  = st.hL * st.rGL * math.sqrt(1.01)
     st.nLr = st.aL + st.lL
 
     if int(getattr(st, "domain_target_x_auto_from_crack", 1)) == 1:
