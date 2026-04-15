@@ -3,15 +3,16 @@
 Run baseline-parameter dynamic cases over a velocity sweep.
 
 Baseline (default same as SFEM setting):
-- rGL = 6
+- rGL = 8
 - aL = ceil(2.5 * rGL)
-- lL = 15 (local elements)
+- lL = ceil(1.2 * rGL)
 - HL = ceil(1.8 * rGL)
 - c_crack = 10 mm
 - stepend = -1 (stepall = round(c_crack / hL))
 
 Default velocity sweep:
-- v = 200, 300, 400, ..., 1500
+- v = 200, 300, 400, 600, 700, 800, 900, 1100, 1200, 1300, 1400, 1500
+  (skip 500 and 1000 to avoid duplicate baseline runs)
 
 The script checks FEM reference source existence for each velocity before
 running. Missing FEM references are skipped by default.
@@ -76,13 +77,14 @@ def _build_cases(
     velocities: Sequence[int],
     rgl: int,
     aL_ratio: float,
-    lL_const: int,
+    lL_ratio: float,
     HL_ratio: float,
     crack_mm: int,
     stepend: int,
+    lL_override: int | None = None,
 ) -> List[VelocityCase]:
     aL = _ceil_mul(rgl, aL_ratio)
-    lL = int(lL_const)
+    lL = int(lL_override) if lL_override is not None else _ceil_mul(rgl, lL_ratio)
     HL = _ceil_mul(rgl, HL_ratio)
 
     return [
@@ -263,9 +265,15 @@ def main() -> int:
     parser.add_argument("--v-end", type=int, default=1500, help="Velocity end (inclusive).")
     parser.add_argument("--v-step", type=int, default=100, help="Velocity increment.")
 
-    parser.add_argument("--rgl", type=int, default=6, help="Baseline rGL.")
+    parser.add_argument("--rgl", type=int, default=8, help="Baseline rGL.")
     parser.add_argument("--al-ratio", type=float, default=2.5, help="aL ratio to rGL.")
-    parser.add_argument("--ll", type=int, default=15, help="Baseline constant lL (local elements).")
+    parser.add_argument("--ll-ratio", type=float, default=1.2, help="lL ratio to rGL.")
+    parser.add_argument(
+        "--ll",
+        type=int,
+        default=None,
+        help="Optional absolute lL override (default uses --ll-ratio).",
+    )
     parser.add_argument("--hl-ratio", type=float, default=1.8, help="HL ratio to rGL.")
 
     parser.add_argument("--crack-mm", type=int, default=10, help="Crack length in mm.")
@@ -294,6 +302,8 @@ def main() -> int:
         if args.v_step <= 0:
             raise ValueError("--v-step must be positive.")
         velocities = list(range(int(args.v_start), int(args.v_end) + 1, int(args.v_step)))
+        default_excluded = {500, 1000}
+        velocities = [v for v in velocities if int(v) not in default_excluded]
 
     if not velocities:
         raise ValueError("No velocity cases to run.")
@@ -305,10 +315,11 @@ def main() -> int:
         velocities=velocities,
         rgl=int(args.rgl),
         aL_ratio=float(args.al_ratio),
-        lL_const=int(args.ll),
+        lL_ratio=float(args.ll_ratio),
         HL_ratio=float(args.hl_ratio),
         crack_mm=int(args.crack_mm),
         stepend=int(args.stepend),
+        lL_override=(None if args.ll is None else int(args.ll)),
     )
 
     print(f"Project root: {project_root}")
@@ -316,7 +327,11 @@ def main() -> int:
         "Baseline params:",
         f"rGL={args.rgl}",
         f"aL=ceil({args.al_ratio}*rGL)",
-        f"lL={args.ll}",
+        (
+            f"lL=ceil({args.ll_ratio}*rGL)"
+            if args.ll is None
+            else f"lL={args.ll}"
+        ),
         f"HL=ceil({args.hl_ratio}*rGL)",
         f"c_crack={args.crack_mm}mm",
         f"stepend={args.stepend}",
