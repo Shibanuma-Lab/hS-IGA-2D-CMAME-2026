@@ -92,12 +92,12 @@ def load_parameters(rGL_value=2):
     # FEM reference input (single source for BC interpolation + FEM J-integral)
     # "auto" mode:
     #   - if c_crack <= fem_mat_max_crack_mm: MAT
-    #   - else: H5 directory FEM_data/h5_export_v{int(st.v)}
+    #   - else: H5 directory FEM_data/h5_export_V_{int(st.v)}_a_{crack_mm}
     st.fem_mat_prefix = "uvaG2DAllFEM2D"
     st.fem_mat_file = "auto"
     st.fem_reference_source = "h5"   # auto | mat | h5
-    st.fem_h5_dir_prefix = "h5_export_v"
-    st.fem_h5_dir = "FEM_data/h5_export_v500_a_50"
+    st.fem_h5_dir_prefix = "h5_export_V_"
+    st.fem_h5_dir = "auto"
     st.fem_h5_plane_z = 0.0
     st.fem_h5_plane_tol = None
     st.fem_mat_max_crack_mm = 10

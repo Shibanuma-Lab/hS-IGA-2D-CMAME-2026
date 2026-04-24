@@ -641,6 +641,39 @@ class JIntegral2D:
 
         return results
 
+    def run_steps(self, steps: List[int], output_file: Optional[Path] = None) -> List[Dict[str, float]]:
+        """Run J-integral calculation for a non-contiguous list of step numbers."""
+        selected_steps = [int(s) for s in steps]
+        if len(selected_steps) == 0:
+            raise ValueError("steps must contain at least one step number.")
+
+        available = set(self._available_steps())
+        missing = [s for s in selected_steps if s not in available]
+        if missing:
+            raise RuntimeError(f"Requested steps are not available for J-integral calculation: {missing}")
+
+        results = [self.calc_J_single_step(step) for step in selected_steps]
+
+        if output_file is None:
+            out_dir = self.result_dir if self.result_dir is not None else Path.cwd()
+            rgl_val = getattr(st, "rGL", None)
+            if rgl_val is None:
+                rgl_val = getattr(st, "rGLlist", 0)
+            rgl = int(rgl_val)
+            output_file = out_dir / f"J_integral_2D_v{int(self.v)}_rGL{rgl}_selected_steps.csv"
+        else:
+            output_file = Path(output_file)
+            if output_file.parent != Path("."):
+                output_file.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(output_file, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["Step", "J_total", "J_static", "J_dynamic", "K_I"])
+            for row in results:
+                writer.writerow([row["step"], row["J"], row["J_static"], row["J_dynamic"], row["K_I"]])
+
+        return results
+
 
 def calculate_jintegral_2d(
     step_start: int,
@@ -651,6 +684,7 @@ def calculate_jintegral_2d(
     output_file: Optional[Path] = None,
     use_saved_files: bool = True,
     extend_symmetric: bool = True,
+    steps: Optional[List[int]] = None,
 ) -> List[Dict[str, float]]:
     """Convenience wrapper for batch J-integral + DSIF calculation."""
     calc = JIntegral2D(
@@ -662,6 +696,8 @@ def calculate_jintegral_2d(
         use_saved_files=use_saved_files,
         extend_symmetric=extend_symmetric,
     )
+    if steps is not None:
+        return calc.run_steps(steps=steps, output_file=output_file)
     return calc.run(output_file=output_file)
 
 
@@ -776,6 +812,7 @@ def calculate_jintegral_2d_fem_reference(
     result_dir: Optional[Path] = None,
     output_file: Optional[Path] = None,
     extend_symmetric: bool = False,
+    steps: Optional[List[int]] = None,
 ) -> List[Dict[str, float]]:
     """Calculate J-integral / DSIF for reference FEM results from MAT or H5."""
     calc = JIntegral2DFEMReference(
@@ -787,6 +824,8 @@ def calculate_jintegral_2d_fem_reference(
         result_dir=result_dir,
         extend_symmetric=extend_symmetric,
     )
+    if steps is not None:
+        return calc.run_steps(steps=steps, output_file=output_file)
     return calc.run(output_file=output_file)
 
 
@@ -799,6 +838,7 @@ def calculate_jintegral_2d_fem_from_mat(
     result_dir: Optional[Path] = None,
     output_file: Optional[Path] = None,
     extend_symmetric: bool = False,
+    steps: Optional[List[int]] = None,
 ) -> List[Dict[str, float]]:
     """Backward-compatible wrapper. Supports MAT path or H5 directory."""
     return calculate_jintegral_2d_fem_reference(
@@ -810,6 +850,7 @@ def calculate_jintegral_2d_fem_from_mat(
         result_dir=result_dir,
         output_file=output_file,
         extend_symmetric=extend_symmetric,
+        steps=steps,
     )
 
 

@@ -123,6 +123,18 @@ def _parse_sweep_rj1(spec: str, Rj0: float) -> List[float]:
     return deduped
 
 
+def _parse_steps(spec: str) -> List[int]:
+    steps: List[int] = []
+    for token in spec.split(","):
+        item = token.strip()
+        if item == "":
+            continue
+        steps.append(int(item))
+    if len(steps) == 0:
+        raise ValueError("--steps is empty. Provide comma-separated step numbers.")
+    return steps
+
+
 def _slug_float(x: float) -> str:
     s = f"{float(x):.8f}".rstrip("0").rstrip(".")
     return s.replace("-", "m").replace(".", "p")
@@ -275,6 +287,12 @@ def main() -> None:
     parser.add_argument("--step-start", type=int, default=0, help="Start step")
     parser.add_argument("--step-end", type=int, default=None, help="End step (default: auto)")
     parser.add_argument(
+        "--steps",
+        type=str,
+        default=None,
+        help="Comma-separated non-contiguous step list; overrides --step-start/--step-end.",
+    )
+    parser.add_argument(
         "--scheme",
         type=str,
         choices=["mathematica", "standard"],
@@ -322,6 +340,7 @@ def main() -> None:
     st.dirname = result_dir
     if args.scheme is not None:
         st.jintegral_scheme = args.scheme
+    selected_steps = None if args.steps is None else _parse_steps(args.steps)
 
     Rj0 = float(st.jintegral_Rj0 if args.Rj0 is None else args.Rj0)
 
@@ -343,12 +362,16 @@ def main() -> None:
             output_file=output,
             use_saved_files=True,
             extend_symmetric=(not args.no_extend),
+            steps=selected_steps,
         )
 
         print(f"[JINT] result_dir: {result_dir}")
         print(f"[JINT] scheme:     {st.jintegral_scheme}")
         print(f"[JINT] output:     {output}")
-        print(f"[JINT] steps:      {len(results)}")
+        if selected_steps is None:
+            print(f"[JINT] steps:      {len(results)}")
+        else:
+            print(f"[JINT] steps:      {','.join(str(s) for s in selected_steps)}")
 
         if args.compare_fem:
             fem_mat = args.fem_mat.resolve()
@@ -369,6 +392,7 @@ def main() -> None:
                 result_dir=result_dir,
                 output_file=fem_output,
                 extend_symmetric=(not args.no_extend),
+                steps=selected_steps,
             )
             comp_rows = compare_jintegral_results(results, fem_results)
             _write_norm_compare_csv(comp_rows, cmp_output)
@@ -407,6 +431,7 @@ def main() -> None:
             output_file=out_case,
             use_saved_files=True,
             extend_symmetric=(not args.no_extend),
+            steps=selected_steps,
         )
         cases.append({"Rj0": Rj0, "Rj1": float(rj1), "rows": rows, "output": out_case})
         print(f"[JINT] contour Rj1={rj1:.8g}: steps={len(rows)}, file={out_case.name}")
