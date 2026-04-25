@@ -139,9 +139,10 @@ def load_parameters(rGL_value=2):
     # J-integral / DSIF post-processing
     # 1: calculate automatically at the end of each job in main.py
     st.calc_jintegral = 1
-    # Domain parameters (in units of hL)
-    st.jintegral_Rj0 = 1.5
-    st.jintegral_Rj1 = 1.515
+    # Domain parameters (in units of hL). The 3h..4h annulus gives a stable
+    # 2D domain integral for dynamic terms while remaining close to the tip.
+    st.jintegral_Rj0 = 3.0
+    st.jintegral_Rj1 = 4.0
     # Step range control: -1 means auto (start=0, end=stepall)
     st.jintegral_step_start = -1
     st.jintegral_step_end = -1

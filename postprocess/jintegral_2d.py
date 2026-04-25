@@ -17,6 +17,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 
 import core.state as st
+from core.calnos import analytical_sif
 from utils.fem_struct_h5 import FEMH5Projected2D
 from utils.fem_struct_mat import load_fem_struct_mat
 from utils.shape_functions import GP, GW, shp, Dshp, enlarge
@@ -46,8 +47,8 @@ class JIntegral2D:
         self,
         step_start: int = 0,
         step_end: Optional[int] = None,
-        Rj0: float = 1.5,
-        Rj1: float = 1.515,
+        Rj0: float = 3.0,
+        Rj1: float = 4.0,
         result_dir: Optional[Path] = None,
         use_saved_files: bool = True,
         extend_symmetric: bool = True,
@@ -515,6 +516,7 @@ class JIntegral2D:
             conn = data.elem[eidx]
             xe = data.node[conn, :]           # (4,2)
             ue = data.dis[conn, :]            # (4,2)
+            ve = data.vel[conn, :]            # (4,2)
             ae = data.acce[conn, :]           # (4,2)
             qe = q[conn]                      # (4,)
 
@@ -534,13 +536,19 @@ class JIntegral2D:
 
                 dux_dx = float(dN[0] @ ue[:, 0])
                 duy_dx = float(dN[0] @ ue[:, 1])
+                dvx_dx = float(dN[0] @ ve[:, 0])
+                dvy_dx = float(dN[0] @ ve[:, 1])
                 dq_dx = float(dN[0] @ qe)
                 dq_dy = float(dN[1] @ qe)
+                q_gp = float(N @ qe)
 
+                vx_gp = float(N @ ve[:, 0])
+                vy_gp = float(N @ ve[:, 1])
                 ax_gp = float(N @ ae[:, 0])
                 ay_gp = float(N @ ae[:, 1])
 
                 W = 0.5 * float(np.dot(strain, stress))
+                K = 0.5 * self.rho * (vx_gp * vx_gp + vy_gp * vy_gp)
                 if self.scheme == "mathematica":
                     # Match updated Mathematica notebook:
                     # ((σxx*ux,x + σxy*uy,x - W) q,x + (σxy*ux,x + σyy*uy,x) q,y)
@@ -553,8 +561,19 @@ class JIntegral2D:
                     s1 = W - (sxx * dux_dx + txy * duy_dx)
                     s2 = -(txy * dux_dx + syy * duy_dx)
                     J_static += (s1 * dq_dx + s2 * dq_dy) * det_jac * w
-                # Match 3D reference: dynamic term does not multiply q at GP.
-                J_dynamic += self.rho * (ax_gp * dux_dx + ay_gp * duy_dx) * det_jac * w
+                # Eq. (46) dynamic terms:
+                #   -K q,x + rho * (u_ddot_j u_j,x - u_dot_j u_dot_j,x) q
+                J_dynamic += (
+                    -K * dq_dx
+                    + self.rho
+                    * (
+                        ax_gp * dux_dx
+                        + ay_gp * duy_dx
+                        - vx_gp * dvx_dx
+                        - vy_gp * dvy_dx
+                    )
+                    * q_gp
+                ) * det_jac * w
 
         if self.scheme == "mathematica":
             # Match Mathematica notebook post-scaling exactly.
@@ -678,8 +697,8 @@ class JIntegral2D:
 def calculate_jintegral_2d(
     step_start: int,
     step_end: Optional[int] = None,
-    Rj0: float = 1.5,
-    Rj1: float = 1.515,
+    Rj0: float = 3.0,
+    Rj1: float = 4.0,
     result_dir: Optional[Path] = None,
     output_file: Optional[Path] = None,
     use_saved_files: bool = True,
@@ -709,8 +728,8 @@ class JIntegral2DFEMReference(JIntegral2D):
         fem_reference_file: Path,
         step_start: int = 0,
         step_end: Optional[int] = None,
-        Rj0: float = 1.5,
-        Rj1: float = 1.515,
+        Rj0: float = 3.0,
+        Rj1: float = 4.0,
         result_dir: Optional[Path] = None,
         extend_symmetric: bool = False,
     ):
@@ -807,8 +826,8 @@ def calculate_jintegral_2d_fem_reference(
     fem_reference_file: Path,
     step_start: int = 0,
     step_end: Optional[int] = None,
-    Rj0: float = 1.5,
-    Rj1: float = 1.515,
+    Rj0: float = 3.0,
+    Rj1: float = 4.0,
     result_dir: Optional[Path] = None,
     output_file: Optional[Path] = None,
     extend_symmetric: bool = False,
@@ -833,8 +852,8 @@ def calculate_jintegral_2d_fem_from_mat(
     fem_mat_file: Path,
     step_start: int = 0,
     step_end: Optional[int] = None,
-    Rj0: float = 1.5,
-    Rj1: float = 1.515,
+    Rj0: float = 3.0,
+    Rj1: float = 4.0,
     result_dir: Optional[Path] = None,
     output_file: Optional[Path] = None,
     extend_symmetric: bool = False,
@@ -864,6 +883,7 @@ def compare_jintegral_results(
     Normalization is defined as:
       ratio = hS_value / FEM_value
     for total/static/dynamic J and K_I.
+    Also includes analytical dynamic SIF per step.
     """
     fem_by_step = {int(r["step"]): r for r in fem_results}
     eps = 1e-14
@@ -877,6 +897,7 @@ def compare_jintegral_results(
         if step not in fem_by_step:
             continue
         fm = fem_by_step[step]
+        k_analytical = float(analytical_sif(step=step))
 
         rows.append(
             {
@@ -893,6 +914,7 @@ def compare_jintegral_results(
                 "K_I_hs": float(hs["K_I"]),
                 "K_I_fem": float(fm["K_I"]),
                 "K_I_norm": _ratio(float(hs["K_I"]), float(fm["K_I"])),
+                "K_I_analytical": k_analytical,
             }
         )
 

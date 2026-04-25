@@ -5,7 +5,7 @@ Collect HHT-alpha sweep outputs into velocity-grouped workbooks.
 The script reads rows from results/hht_alpha_sweep_summary.csv and extracts:
 1) 4th column of sigmanos_*.csv
 2) Last-row valid values (NaN removed) of sigmanos_*.csv
-3) K_I_norm_hs_over_fem column from step >= 1 in
+3) K_I_hs / K_I_analytical from step >= 1 in
    J_integral_2D_compare_hs_vs_FEM_*.csv
 """
 
@@ -18,6 +18,14 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
+from core.calnos import analytical_sif
+
+
+ANALYTICAL_HL = 0.05e-3
+ANALYTICAL_SIGMA_INF = 1.0e11
+ANALYTICAL_EE = 2.06e11
+ANALYTICAL_NU = 0.3
+ANALYTICAL_RHO = 7800.0
 
 
 def _parse_csv_list(raw: str) -> List[str]:
@@ -56,6 +64,17 @@ def _to_int(value: object) -> Optional[int]:
     if val is None:
         return None
     return int(val)
+
+
+def _steps_over_hl(length: int, start_step: int = 1) -> List[float]:
+    n = max(0, int(length))
+    s0 = int(start_step)
+    return [float(s0 + i) for i in range(n)]
+
+
+def _crack_length_mm_from_count(length: int, start_step: int = 1) -> List[float]:
+    steps = _steps_over_hl(length, start_step=start_step)
+    return [float(s * ANALYTICAL_HL * 1000.0) for s in steps]
 
 
 def _read_summary(
@@ -143,30 +162,49 @@ def _select_column_key(fieldnames: Sequence[str], target: str) -> Optional[str]:
     return None
 
 
-def _read_ki_norm(j_file: Path) -> List[float]:
+def _read_ki_norm_hs_over_analytical(j_file: Path, velocity: float) -> Tuple[List[float], List[float]]:
+    crack_mm: List[float] = []
     out: List[float] = []
     with open(j_file, newline="") as f:
         reader = csv.DictReader(f)
         if reader.fieldnames is None:
-            return out
+            return crack_mm, out
 
-        ki_key = _select_column_key(reader.fieldnames, "K_I_norm_hs_over_fem")
-        if ki_key is None:
-            raise KeyError(f"Column 'K_I_norm_hs_over_fem' not found in {j_file}")
+        ki_hs_key = _select_column_key(reader.fieldnames, "K_I_hs")
+        if ki_hs_key is None:
+            raise KeyError(f"Column 'K_I_hs' not found in {j_file}")
 
         step_key = _select_column_key(reader.fieldnames, "Step")
+        if step_key is None:
+            raise KeyError(f"Column 'Step' not found in {j_file}")
+
         for row in reader:
-            ki = _to_float(row.get(ki_key))
-            if ki is None or math.isnan(ki):
+            step = _to_float(row.get(step_key))
+            if step is None:
+                continue
+            step_i = int(round(step))
+            if step_i < 1:
                 continue
 
-            if step_key is not None:
-                step = _to_float(row.get(step_key))
-                if step is None or step < 1.0:
-                    continue
+            ki_hs = _to_float(row.get(ki_hs_key))
+            if ki_hs is None or math.isnan(ki_hs):
+                continue
 
-            out.append(float(ki))
-    return out
+            ki_analytical = analytical_sif(
+                step=step_i,
+                V=float(velocity),
+                sigma_inf=ANALYTICAL_SIGMA_INF,
+                hL=ANALYTICAL_HL,
+                EE=ANALYTICAL_EE,
+                nu=ANALYTICAL_NU,
+                rho=ANALYTICAL_RHO,
+            )
+            if not np.isfinite(ki_analytical) or abs(float(ki_analytical)) < 1e-14:
+                continue
+
+            crack_mm.append(float(step_i * ANALYTICAL_HL * 1000.0))
+            out.append(float(ki_hs / ki_analytical))
+    return crack_mm, out
 
 
 def _column_label(row: Dict[str, str]) -> str:
@@ -215,16 +253,23 @@ def _build_velocity_payload(
 
         label = _make_unique_label(_column_label(row), used_labels)
 
+        velocity = _to_float(row.get("v"))
+        if velocity is None:
+            print(f"[WARN] Missing velocity in summary row, skip: {row}")
+            continue
+
         try:
             col4, last_valid = _read_sigmanos(sig_file)
-            ki_vals = _read_ki_norm(j_file)
+            ki_crack_mm, ki_vals = _read_ki_norm_hs_over_analytical(j_file, velocity=float(velocity))
         except Exception as exc:
             print(f"[WARN] Failed to parse {case_dir.name}: {type(exc).__name__}: {exc}")
             continue
 
-        sig_col4[label] = col4
+        sig_col4[f"{label} | crack_length_mm"] = _crack_length_mm_from_count(len(col4), start_step=1)
+        sig_col4[f"{label} | sigmanos_col4"] = col4
         sig_last_valid[label] = last_valid
-        ki_norm[label] = ki_vals
+        ki_norm[f"{label} | crack_length_mm"] = ki_crack_mm
+        ki_norm[f"{label} | K_I_hS/K_I_analytical"] = ki_vals
 
     return {
         "sigmanos_col4": sig_col4,

@@ -71,6 +71,7 @@ def _write_norm_compare_csv(rows, output_file: Path):
                 "K_I_hs",
                 "K_I_fem",
                 "K_I_norm_hs_over_fem",
+                "K_I_analytical",
             ]
         )
         for r in rows:
@@ -89,6 +90,7 @@ def _write_norm_compare_csv(rows, output_file: Path):
                     r["K_I_hs"],
                     r["K_I_fem"],
                     r["K_I_norm"],
+                    r["K_I_analytical"],
                 ]
             )
 

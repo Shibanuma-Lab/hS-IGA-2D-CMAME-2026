@@ -8,7 +8,7 @@ Usage examples:
   python3 run_jintegral_2d.py --result-dir ... --step-start 50 --step-end 80
   python3 run_jintegral_2d.py --scheme mathematica --step-start 0 --step-end 20
   python3 run_jintegral_2d.py --compare-fem --fem-mat FEM_data/uvaG2DAllFEM2D_v_400_a_20.mat
-  python3 run_jintegral_2d.py --result-dir ... --Rj0 1.5 --sweep-rj1 "2.01*Rj0,3.01*Rj0,4.01*Rj0"
+  python3 run_jintegral_2d.py --result-dir ... --Rj0 3.0 --sweep-rj1 "4.0,5.0,6.0"
 """
 
 from __future__ import annotations
@@ -258,6 +258,7 @@ def _write_norm_compare_csv(rows: List[Dict[str, float]], output_file: Path) -> 
                 "K_I_hs",
                 "K_I_fem",
                 "K_I_norm_hs_over_fem",
+                "K_I_analytical",
             ]
         )
         for r in rows:
@@ -276,6 +277,7 @@ def _write_norm_compare_csv(rows: List[Dict[str, float]], output_file: Path) -> 
                     r["K_I_hs"],
                     r["K_I_fem"],
                     r["K_I_norm"],
+                    r["K_I_analytical"],
                 ]
             )
 
