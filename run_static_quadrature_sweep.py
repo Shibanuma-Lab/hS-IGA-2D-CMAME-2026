@@ -2,10 +2,19 @@
 """
 Run the static coupling-quadrature sensitivity study.
 
-The default campaign reproduces the standard nominal ``fix rGL=4`` mesh
-sequence,
+The default campaign reproduces the exact ``fix rGL=4`` paper mesh family,
 
-    nhL in range(5, 10000, 4),
+    nhL in range(10, 10000, 4),
+
+with
+
+    nGx = nhL / 2,
+    nGy = (nGx - 1) / 2,
+    aL = lL = HL = nhL / 2.
+
+The explicit construction is intentional: it avoids deriving local element
+counts from the slightly enlarged physical local-patch span, which would not
+reproduce the paper mesh family at sufficiently fine resolutions.
 
 and performs only the two additional coupling-quadrature calculations requested
 for the sensitivity study:
@@ -17,9 +26,10 @@ recomputed by default.  Passing ``--orders 3`` explicitly remains available
 for an optional verification run.
 
 The usual per-order static CSV files are written below
-``static_results/quadrature_sensitivity_fix_rGL_4/ngp_NxN/``.  Combined CSV
-files containing an additional ``gauss_order`` column are also created in
-``static_results/quadrature_sensitivity_fix_rGL_4/``.
+``static_results/quadrature_sensitivity_fix_rGL_4_paper_mesh/ngp_NxN/``.
+Combined CSV files containing an additional ``gauss_order`` column, together
+with an auditable ``mesh_recipe.csv``, are created in
+``static_results/quadrature_sensitivity_fix_rGL_4_paper_mesh/``.
 
 Examples
 --------
@@ -41,6 +51,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import re
 from pathlib import Path
 from typing import Iterable, Sequence
@@ -49,6 +60,8 @@ import core.state as st
 from config.static_parameters import (
     _dedupe_cases_by_hg,
     _make_case,
+    _make_case_with_counts,
+    _nGy_from_nGx_exact,
     _truncate_cases_by_dof,
     load_static_parameters,
 )
@@ -57,8 +70,11 @@ from main import execution
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 STATIC_RESULTS_DIR = PROJECT_ROOT / "static_results"
-DEFAULT_OUTPUT_NAME = "quadrature_sensitivity_fix_rGL_4"
+DEFAULT_OUTPUT_NAME = "quadrature_sensitivity_fix_rGL_4_paper_mesh"
 FIXED_RGL = 4.0
+PAPER_MESH_FAMILY = "paper_exact"
+LEGACY_MESH_FAMILY = "legacy_floor_span"
+MANIFEST_FILENAME = "quadrature_campaign_manifest.json"
 SUMMARY_FILES = (
     "dof_l2_norm.csv",
     "normalized_sif.csv",
@@ -84,8 +100,140 @@ def _validate_output_name(value: str) -> str:
     return name
 
 
+def _build_paper_exact_rgl4_cases(
+    *,
+    nhl_start: int,
+    nhl_stop: int,
+    nhl_step: int,
+) -> list[dict]:
+    """Build the published exact ``rGL=4`` mesh family from integer counts."""
+    if nhl_start % 4 != 2:
+        raise ValueError(
+            "The paper rGL=4 family requires --nhl-start = 4k+2 "
+            "(for example 10)."
+        )
+    if nhl_step % 4 != 0:
+        raise ValueError(
+            "The paper rGL=4 family requires --nhl-step to be a multiple "
+            "of 4 (default: 4)."
+        )
+
+    cases: list[dict] = []
+    for nhl in range(nhl_start, nhl_stop, nhl_step):
+        half = int(nhl) // 2
+        nGx = int(half)
+        nGy = _nGy_from_nGx_exact(nGx)
+        case = _make_case_with_counts(
+            nhL=int(nhl),
+            nGx=nGx,
+            nGy=nGy,
+            aL=half,
+            lL=half,
+            HL=half,
+            rGL=FIXED_RGL,
+        )
+        actual_rgl = float(case["hG"]) / float(case["hL"])
+        if abs(actual_rgl - FIXED_RGL) > 1.0e-12:
+            raise RuntimeError(
+                f"Paper mesh case nhL={nhl} has rGL={actual_rgl}, "
+                f"expected {FIXED_RGL}"
+            )
+        case["mesh_family"] = PAPER_MESH_FAMILY
+        cases.append(case)
+    return cases
+
+
+def _campaign_manifest(
+    *,
+    mesh_family: str,
+    nhl_start: int,
+    nhl_stop: int,
+    nhl_step: int,
+    dof_cap: int,
+    max_cases: int,
+) -> dict:
+    return {
+        "schema_version": 1,
+        "study": "static_coupling_quadrature_sensitivity",
+        "fixed_nominal_rGL": FIXED_RGL,
+        "mesh_family": str(mesh_family),
+        "nhL_range": [int(nhl_start), int(nhl_stop), int(nhl_step)],
+        "dof_cap": int(dof_cap),
+        "max_cases": int(max_cases),
+    }
+
+
+def _prepare_campaign_directory(output_name: str, manifest: dict) -> Path:
+    """Create or validate the mesh-family manifest before calculating."""
+    campaign_dir = STATIC_RESULTS_DIR / output_name
+    manifest_path = campaign_dir / MANIFEST_FILENAME
+    if manifest_path.is_file():
+        with manifest_path.open() as stream:
+            existing = json.load(stream)
+        if existing != manifest:
+            raise ValueError(
+                f"{manifest_path.relative_to(PROJECT_ROOT)} belongs to a "
+                "different mesh recipe. Use a new --output-name instead of "
+                "mixing quadrature results."
+            )
+        return campaign_dir
+
+    if campaign_dir.is_dir() and any(campaign_dir.iterdir()):
+        raise ValueError(
+            f"{campaign_dir.relative_to(PROJECT_ROOT)} already contains "
+            "results without a mesh-family manifest. Use a new --output-name "
+            "to preserve those results."
+        )
+
+    campaign_dir.mkdir(parents=True, exist_ok=True)
+    with manifest_path.open("w") as stream:
+        json.dump(manifest, stream, indent=2)
+    return campaign_dir
+
+
+def _write_mesh_recipe(output_name: str, cases: Sequence[dict]) -> None:
+    """Write the planned integer mesh counts once for auditability."""
+    destination = STATIC_RESULTS_DIR / output_name / "mesh_recipe.csv"
+    with destination.open("w", newline="") as stream:
+        writer = csv.writer(stream)
+        writer.writerow(
+            [
+                "case_name",
+                "mesh_family",
+                "hG",
+                "hL",
+                "rGL",
+                "nGx",
+                "nGy",
+                "nhL",
+                "aL",
+                "lL",
+                "HL",
+                "dof_estimate",
+            ]
+        )
+        for case in cases:
+            writer.writerow(
+                [
+                    f"nGx_{int(case['nGx'])}_aL_{int(case['aL'])}",
+                    case.get("mesh_family", LEGACY_MESH_FAMILY),
+                    case["hG"],
+                    case["hL"],
+                    case["rGL"],
+                    case["nGx"],
+                    case["nGy"],
+                    case["nhL"],
+                    case["aL"],
+                    case["lL"],
+                    case["HL"],
+                    case["dof_estimate"],
+                ]
+            )
+
+
 def _build_fix_rgl_cases(
     *,
+    mesh_family: str,
     nhl_start: int,
     nhl_stop: int,
     nhl_step: int,
@@ -103,11 +251,22 @@ def _build_fix_rgl_cases(
     if max_cases < 0:
         raise ValueError("--max-cases cannot be negative.")
 
-    raw_cases = [
-        _make_case(nhL=nhl, rGL=FIXED_RGL)
-        for nhl in range(nhl_start, nhl_stop, nhl_step)
-    ]
-    deduped = _dedupe_cases_by_hg(raw_cases, target_rgl=FIXED_RGL)
+    if mesh_family == PAPER_MESH_FAMILY:
+        deduped = _build_paper_exact_rgl4_cases(
+            nhl_start=nhl_start,
+            nhl_stop=nhl_stop,
+            nhl_step=nhl_step,
+        )
+    elif mesh_family == LEGACY_MESH_FAMILY:
+        raw_cases = [
+            _make_case(nhL=nhl, rGL=FIXED_RGL)
+            for nhl in range(nhl_start, nhl_stop, nhl_step)
+        ]
+        deduped = _dedupe_cases_by_hg(raw_cases, target_rgl=FIXED_RGL)
+        for case in deduped:
+            case["mesh_family"] = LEGACY_MESH_FAMILY
+    else:
+        raise ValueError(f"Unsupported mesh family: {mesh_family}")
     cases = _truncate_cases_by_dof(
         deduped,
         max_dof=dof_cap,
@@ -124,6 +283,7 @@ def _configure_order(
     *,
     order: int,
     output_name: str,
+    mesh_family: str,
     nhl_start: int,
     nhl_stop: int,
     nhl_step: int,
@@ -135,6 +295,7 @@ def _configure_order(
     load_static_parameters(sweep_mode="fix_rGL")
 
     cases = _build_fix_rgl_cases(
+        mesh_family=mesh_family,
         nhl_start=nhl_start,
         nhl_stop=nhl_stop,
         nhl_step=nhl_step,
@@ -174,6 +335,7 @@ def _print_batch(order: int, cases: Sequence[dict], dof_cap: int) -> None:
     last = cases[-1]
     print(
         f"[BATCH] coupling quadrature={order}x{order}, cases={len(cases)}, "
+        f"mesh_family={first.get('mesh_family', LEGACY_MESH_FAMILY)}, "
         f"first(nhL={first['nhL']}, nGx={first['nGx']}, "
         f"dof={first['dof_estimate']}), "
         f"last(nhL={last['nhL']}, nGx={last['nGx']}, "
@@ -274,10 +436,20 @@ def _parse_args() -> argparse.Namespace:
         help="Maximum estimated total DOF per case (default: 100000).",
     )
     parser.add_argument(
+        "--mesh-family",
+        choices=(PAPER_MESH_FAMILY, LEGACY_MESH_FAMILY),
+        default=PAPER_MESH_FAMILY,
+        help=(
+            "Mesh-count rule: paper_exact reproduces the published "
+            "nhL=10,14,18,... sequence (default); legacy_floor_span "
+            "reproduces the earlier nhL-to-count floor rule."
+        ),
+    )
+    parser.add_argument(
         "--nhl-start",
         type=int,
-        default=5,
-        help="Start of the nhL range, inclusive (default: 5).",
+        default=10,
+        help="Start of the nhL range, inclusive (default: 10).",
     )
     parser.add_argument(
         "--nhl-stop",
@@ -333,7 +505,7 @@ def main() -> int:
         raise SystemExit(str(exc)) from exc
 
     print(f"Project root: {PROJECT_ROOT}")
-    print("Static mesh family: nominal fix rGL=4")
+    print(f"Static mesh family: {args.mesh_family}, nominal fix rGL=4")
     print("Existing paper baseline: coupling quadrature=3x3 (not recomputed by default)")
     print(
         "nhL range: "
@@ -344,11 +516,29 @@ def main() -> int:
     print(f"Output: static_results/{output_name}")
     print(f"Metrics only: {bool(args.metrics_only)}")
 
+    if not args.dry_run:
+        try:
+            _prepare_campaign_directory(
+                output_name,
+                _campaign_manifest(
+                    mesh_family=str(args.mesh_family),
+                    nhl_start=int(args.nhl_start),
+                    nhl_stop=int(args.nhl_stop),
+                    nhl_step=int(args.nhl_step),
+                    dof_cap=int(args.dof_cap),
+                    max_cases=int(args.max_cases),
+                ),
+            )
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
+
+    recipe_written = False
     for order in orders:
         try:
             cases = _configure_order(
                 order=order,
                 output_name=output_name,
+                mesh_family=str(args.mesh_family),
                 nhl_start=int(args.nhl_start),
                 nhl_stop=int(args.nhl_stop),
                 nhl_step=int(args.nhl_step),
@@ -360,6 +550,9 @@ def main() -> int:
             raise SystemExit(str(exc)) from exc
 
         _print_batch(order, cases, int(args.dof_cap))
+        if not args.dry_run and not recipe_written:
+            _write_mesh_recipe(output_name, cases)
+            recipe_written = True
         if args.dry_run or not cases:
             continue
 

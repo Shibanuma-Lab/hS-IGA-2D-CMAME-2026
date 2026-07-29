@@ -11,11 +11,12 @@ Cases
 1. hG = 2/21, nhL = 40
 2. hG = 2/41, nhL = 80
 
-Only normalized stress yy is evaluated.  Direct total-field stress is the
-recommended curve for a strict cross-formulation comparison.  A lumped
-boundary-reaction projection is also saved as the B-spline analogue (not the
-identical smoothing operator) of the existing hS-IGA reaction recovery.
-L2 error, SIF, and J-integral are deliberately skipped because their existing
+The default local patch is a standard open-uniform quadratic B-spline patch:
+no additional/repeated crack-tip knot is inserted, so it remains C1 at the
+tip.  The previous C0 tip-knot-inserted formulation remains available as an
+explicit comparison mode.  Only normalized stress yy is evaluated.  Direct total-field stress is
+the recommended curve for a strict cross-formulation comparison.  L2 error,
+SIF, and J-integral are deliberately skipped because their existing
 implementations assume a nodal Q4 local mesh.  A combined global/local VTU
 file is written for each case.
 """
@@ -60,7 +61,10 @@ from solver.solve import solve
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 STATIC_RESULTS_DIR = PROJECT_ROOT / "static_results"
-DEFAULT_OUTPUT_NAME = "full_siga_static_comparison"
+DEFAULT_OUTPUT_NAMES = {
+    "c1": "full_siga_static_comparison_c1",
+    "c0": "full_siga_static_comparison",
+}
 CAMPAIGN_SCHEMA_VERSION = 1
 
 
@@ -74,14 +78,22 @@ def _validate_output_name(value: str) -> str:
     return name
 
 
-def _case_label(nGx: int, nhL: int) -> str:
-    return f"full_siga_hG_2_over_{int(nGx)}_nhL_{int(nhL)}"
+def _case_label(nGx: int, nhL: int, local_tip_continuity: str) -> str:
+    continuity = str(local_tip_continuity).lower()
+    prefix = "full_siga" if continuity == "c0" else f"full_siga_{continuity}"
+    return f"{prefix}_hG_2_over_{int(nGx)}_nhL_{int(nhL)}"
 
 
 def build_target_cases(
     nGy_overrides: tuple[int, int] | None = None,
+    local_tip_continuity: str = "c1",
 ) -> list[dict]:
     """Build the two meshes requested for the reviewer comparison."""
+    continuity = str(local_tip_continuity).lower()
+    if continuity not in {"c1", "c0"}:
+        raise ValueError(
+            "local_tip_continuity must be 'c1' or 'c0'"
+        )
     cases = []
     targets = ((21, 40), (41, 80))
     for index, (nGx, nhL) in enumerate(targets):
@@ -101,15 +113,25 @@ def build_target_cases(
             HL=half,
             rGL=hG / hL,
         )
-        case["full_siga_label"] = _case_label(nGx, nhL)
+        case["full_siga_tip_continuity"] = continuity.upper()
+        case["full_siga_label"] = _case_label(
+            nGx,
+            nhL,
+            continuity,
+        )
         cases.append(case)
     return cases
 
 
-def _estimated_full_siga_dof(case: dict, p: int, q: int) -> int:
+def _estimated_full_siga_dof(
+    case: dict,
+    p: int,
+    q: int,
+    local_tip_continuity: str,
+) -> int:
     global_cp = (int(case["nGx"]) + p) * (int(case["nGy"]) + q)
-    # One extra u-direction CP is introduced by the p=2 C0 crack-tip knot.
-    local_cp_u = int(case["aL"]) + int(case["lL"]) + p + (p - 1)
+    extra_tip_cp = (p - 1) if str(local_tip_continuity).lower() == "c0" else 0
+    local_cp_u = int(case["aL"]) + int(case["lL"]) + p + extra_tip_cp
     local_cp_v = int(case["HL"]) + q
     return 2 * (global_cp + local_cp_u * local_cp_v)
 
@@ -118,10 +140,15 @@ def configure_campaign(
     *,
     output_name: str,
     coupling_order: int,
+    local_tip_continuity: str,
     nGy_overrides: tuple[int, int] | None = None,
 ) -> list[dict]:
     load_static_parameters(sweep_mode="fix_rGL")
-    cases = build_target_cases(nGy_overrides=nGy_overrides)
+    continuity = str(local_tip_continuity).lower()
+    cases = build_target_cases(
+        nGy_overrides=nGy_overrides,
+        local_tip_continuity=continuity,
+    )
 
     st.static_sweep_mode = "custom"
     st.static_parent_label = str(output_name)
@@ -131,6 +158,7 @@ def configure_campaign(
     st.full_siga_local_p = int(st.p)
     st.full_siga_local_q = int(st.q)
     st.full_siga_local_ngp = int(st.p) + 1
+    st.full_siga_local_tip_continuity = continuity.upper()
     st.local_discretization = "iga"
 
     # The dedicated writer below replaces the legacy Q4 savedata/metrics path.
@@ -158,12 +186,13 @@ def _campaign_manifest(
     cases: list[dict],
     coupling_order: int,
     ligament_fixity: str,
+    local_tip_continuity: str,
 ) -> dict:
     return {
         "schema_version": CAMPAIGN_SCHEMA_VERSION,
         "formulation": "full_s_iga_static_reviewer_comparison",
         "local_discretization": "quadratic_iga",
-        "local_tip_continuity": "C0",
+        "local_tip_continuity": str(local_tip_continuity).upper(),
         "ligament_fixity": str(ligament_fixity),
         "coupling_gauss_points_per_direction": int(coupling_order),
         "recommended_cross_formulation_stress_recovery": (
@@ -299,6 +328,7 @@ def run_case(
     result["diagnostics"] = _matrix_diagnostics()
     result["local_control_point_count"] = int(st.nnmL)
     result["local_element_count"] = int(st.nemL)
+    result["local_tip_continuity"] = str(st.local_iga_tip_continuity)
     result["ligament_fixity"] = str(ligament_fixity)
     result["coupling_order"] = int(st.static_kgl_ngpGL)
 
@@ -348,6 +378,17 @@ def _parse_args() -> argparse.Namespace:
         help="Gauss points per direction for KGL intersections (default: 3).",
     )
     parser.add_argument(
+        "--local-tip-continuity",
+        choices=("c1", "c0"),
+        default="c1",
+        help=(
+            "Local quadratic IGA continuity at the crack tip: c1 uses a "
+            "plain open-uniform knot vector with no additional/repeated tip "
+            "knot insertion "
+            "(default); c0 inserts one additional tip knot."
+        ),
+    )
+    parser.add_argument(
         "--ngy",
         nargs=2,
         type=int,
@@ -370,10 +411,11 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--output-name",
-        default=DEFAULT_OUTPUT_NAME,
+        default=None,
         help=(
-            "Relative campaign directory below static_results "
-            f"(default: {DEFAULT_OUTPUT_NAME})."
+            "Relative campaign directory below static_results. Defaults to "
+            "full_siga_static_comparison_c1 for c1 and the existing "
+            "full_siga_static_comparison directory for c0."
         ),
     )
     parser.add_argument(
@@ -400,14 +442,21 @@ def main() -> int:
         raise SystemExit("--coupling-order must be positive")
     if args.ngy is not None and any(int(value) < 1 for value in args.ngy):
         raise SystemExit("--ngy values must be positive")
+    continuity = str(args.local_tip_continuity).lower()
+    requested_output_name = (
+        args.output_name
+        if args.output_name is not None
+        else DEFAULT_OUTPUT_NAMES[continuity]
+    )
     try:
-        output_name = _validate_output_name(args.output_name)
+        output_name = _validate_output_name(requested_output_name)
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
 
     cases = configure_campaign(
         output_name=output_name,
         coupling_order=int(args.coupling_order),
+        local_tip_continuity=continuity,
         nGy_overrides=(
             (int(args.ngy[0]), int(args.ngy[1]))
             if args.ngy is not None
@@ -425,13 +474,31 @@ def main() -> int:
     print("Comparison: full s-IGA (quadratic IGA in global and local patches)")
     print("Metrics: normalized stress yy only; L2/SIF/J are skipped")
     print("Recommended comparison curve: direct total-field stress")
-    print("Additional native curve: lumped generalized-reaction projection")
+    if continuity == "c1":
+        print(
+            "Additional diagnostic curve: generalized-reaction projection "
+            "(not a pure ligament-traction recovery in C1)"
+        )
+    else:
+        print(
+            "Additional native curve: lumped generalized-reaction projection"
+        )
     print(
         "Caution: native Q4 and IGA reaction curves use different recovery "
         "kernels; the legacy hS metric also divides by nominal hL"
     )
     print("VTU stress recovery: direct total field")
-    print("Local tip continuity: C0")
+    if continuity == "c1":
+        print(
+            "Local tip continuity: C1 "
+            "(plain knot vector; no additional tip repetition)"
+        )
+        print(
+            "Tip BC limitation: no control point lies exactly at the crack "
+            "tip, so the crack-face/ligament transition is not exact"
+        )
+    else:
+        print("Local tip continuity: C0 (one additional tip knot inserted)")
     print(f"Ligament fixity: {args.ligament_fixity}")
     print(f"Output: static_results/{output_name}")
 
@@ -443,6 +510,7 @@ def main() -> int:
                     cases=cases,
                     coupling_order=int(args.coupling_order),
                     ligament_fixity=str(args.ligament_fixity),
+                    local_tip_continuity=continuity,
                 ),
             )
         except ValueError as exc:
@@ -450,7 +518,12 @@ def main() -> int:
 
     for job, case in selected_jobs:
         output_dir = _case_output_dir(output_name, case)
-        estimated_dof = _estimated_full_siga_dof(case, int(st.p), int(st.q))
+        estimated_dof = _estimated_full_siga_dof(
+            case,
+            int(st.p),
+            int(st.q),
+            continuity,
+        )
         print(
             f"[CASE] {case['full_siga_label']}: "
             f"nGx/nGy={case['nGx']}/{case['nGy']}, nhL={case['nhL']}, "

@@ -98,12 +98,29 @@ def build_local_iga_mesh() -> None:
     """
     Build a uniform physical local IGA patch for the current static case.
 
-    The crack tip lies at the middle u-knot.  Its multiplicity is raised to
-    ``pL`` so the quadratic local basis is C0 at the crack-tip section and has
-    an actual control-point column at the tip.
+    Two crack-tip variants are supported for the quadratic local basis:
+
+    - ``C1``: a plain open-uniform knot vector.  No additional/repeated
+      crack-tip knot is inserted, and no control-point column lies exactly at
+      the tip.
+    - ``C0``: one additional crack-tip knot is inserted, producing a tip
+      control-point column and C0 continuity at that section.
     """
     p_local = int(getattr(st, "full_siga_local_p", st.p))
     q_local = int(getattr(st, "full_siga_local_q", st.q))
+    requested_continuity = str(
+        getattr(st, "full_siga_local_tip_continuity", "C1")
+    ).upper()
+    if requested_continuity not in {"C1", "C0"}:
+        raise ValueError(
+            "full_siga_local_tip_continuity must be 'C1' or 'C0'"
+        )
+    if p_local != 2:
+        raise ValueError(
+            "The C1/C0 reviewer comparison currently assumes a quadratic "
+            f"local basis, got p={p_local}"
+        )
+
     nelem_u = int(st.nLr)
     nelem_v = int(st.HL)
     if nelem_u % 2 != 0:
@@ -118,10 +135,13 @@ def build_local_iga_mesh() -> None:
             f"Invalid crack-tip knot index aL={tip_knot_index} for {nelem_u} elements"
         )
 
+    c0_indices = (
+        (tip_knot_index,) if requested_continuity == "C0" else ()
+    )
     knot_u = _open_uniform_knot_vector(
         nelem_u,
         p_local,
-        c0_internal_indices=(tip_knot_index,),
+        c0_internal_indices=c0_indices,
     )
     knot_v = _open_uniform_knot_vector(nelem_v, q_local)
     unique_u = _unique_nondecreasing(knot_u)
@@ -214,7 +234,25 @@ def build_local_iga_mesh() -> None:
     st.local_iga_vis_nodes = vis_nodes
     st.local_iga_vis_elements = np.asarray(vis_elements, dtype=int)
     st.local_iga_bounds = (x_min, x_max, y_min, y_max)
-    st.local_iga_tip_param = float(tip_knot_index) / float(nelem_u)
+    tip_param = float(tip_knot_index) / float(nelem_u)
+    tip_knot_multiplicity = int(
+        np.count_nonzero(
+            np.isclose(knot_u, tip_param, rtol=0.0, atol=1.0e-14)
+        )
+    )
+    actual_continuity = f"C{p_local - tip_knot_multiplicity}"
+    if actual_continuity != requested_continuity:
+        raise RuntimeError(
+            "Unexpected crack-tip continuity: requested "
+            f"{requested_continuity}, constructed {actual_continuity}"
+        )
+    st.local_iga_tip_param = tip_param
+    st.local_iga_tip_knot_multiplicity = tip_knot_multiplicity
+    st.local_iga_tip_continuity = actual_continuity
+    st.local_iga_tip_extra_knot_count = max(
+        tip_knot_multiplicity - 1,
+        0,
+    )
 
     # Compatibility aliases used by getresult() and the common linear solver.
     st.nodeL = control_points
@@ -232,11 +270,16 @@ def build_local_iga_mesh() -> None:
     tip_columns = np.where(
         np.isclose(cp_x, float(st.static_crack_tip_x), rtol=0.0, atol=1.0e-12)
     )[0]
-    if len(tip_columns) != 1:
+    expected_tip_columns = 1 if requested_continuity == "C0" else 0
+    if len(tip_columns) != expected_tip_columns:
         raise RuntimeError(
-            f"Expected one local IGA control-point column at the crack tip, got {tip_columns}"
+            f"Expected {expected_tip_columns} local IGA control-point columns "
+            f"at the crack tip for {requested_continuity}, got {tip_columns}"
         )
-    st.local_iga_tip_column = int(tip_columns[0])
+    st.local_iga_tip_columns = [int(value) for value in tip_columns]
+    st.local_iga_tip_column = (
+        int(tip_columns[0]) if len(tip_columns) == 1 else None
+    )
 
 
 def setup_combined_mesh_state() -> None:
@@ -596,9 +639,12 @@ def apply_full_siga_static_boundary(
 
     The local correction is fixed in both components on the artificial left,
     right, and top patch boundaries.  Along y=0, crack-face control points
-    behind the tip are released.  The crack-tip and ligament control points
-    have their normal (y) correction fixed; ``ligament_fixity='xy'`` can be
-    used to fix both correction components for a literal fully-fixed variant.
+    behind the tip are released.  Ligament control points have their normal
+    (y) correction fixed; a C0 mesh also has an exact crack-tip control point
+    that is fixed.  A plain C1 mesh has no exact tip control point, so basis
+    support necessarily crosses the boundary-condition transition.
+    ``ligament_fixity='xy'`` can fix both correction components for a literal
+    fully-fixed variant.
     """
     ligament_fixity = str(ligament_fixity).lower()
     if ligament_fixity not in {"normal", "xy"}:
@@ -688,6 +734,32 @@ def apply_full_siga_static_boundary(
         if ligament_fixity == "xy":
             bc_map[(combined_id, 1)] = 0.0
 
+    tip_span = FindSpanMinus(
+        ncp_u - 1,
+        int(st.local_iga_p),
+        float(st.local_iga_tip_param),
+        st.local_iga_knot_u,
+    )
+    tip_conn = np.arange(
+        tip_span - int(st.local_iga_p),
+        tip_span + 1,
+        dtype=int,
+    )
+    tip_basis = np.asarray(
+        BasisFuns(
+            tip_span,
+            float(st.local_iga_tip_param),
+            int(st.local_iga_p),
+            st.local_iga_knot_u,
+        ),
+        dtype=float,
+    )
+    nonzero_tip_support = [
+        int(local_id)
+        for local_id, value in zip(tip_conn, tip_basis)
+        if abs(float(value)) > 1.0e-12
+    ]
+
     st.ebc = np.asarray(
         [
             [node_id, direction, value]
@@ -702,6 +774,20 @@ def apply_full_siga_static_boundary(
     st.full_siga_local_crack_surface_cp = sorted(crack_surface_local)
     st.full_siga_local_tip_cp = sorted(tip_local)
     st.full_siga_local_ligament_cp = sorted(ligament_local)
+    st.full_siga_tip_nonzero_basis_cp = nonzero_tip_support
+    st.full_siga_tip_nonzero_basis_values = [
+        float(value)
+        for value in tip_basis
+        if abs(float(value)) > 1.0e-12
+    ]
+    st.full_siga_tip_nonzero_basis_fix_y = [
+        int((int(st.nnmG) + local_id, 2) in bc_map)
+        for local_id in nonzero_tip_support
+    ]
+    st.full_siga_tip_bc_transition_exact = bool(
+        st.local_iga_tip_continuity == "C0"
+        and len(tip_local) == 1
+    )
     st.full_siga_bc_map = bc_map
 
 
@@ -764,7 +850,7 @@ def _local_field_at(x_coord: float, y_coord: float):
 
 def _project_ligament_reaction_stress(
     sample_x: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, dict]:
     """
     Recover ligament traction from generalized IGA control-point reactions.
 
@@ -776,8 +862,9 @@ def _project_ligament_reaction_stress(
     on the ligament and then evaluate ``N_j(x)c_j`` at the requested points.
     This is the IGA counterpart of the nodal-reaction recovery used by the
     existing hS-IGA static benchmark.  It is not the same smoothing operator
-    as Q4 nodal lumping, so the direct total-field stress should be used when
-    making a strict cross-formulation stress-field comparison.
+    as Q4 nodal lumping.  In the C1 variant, basis functions on the ligament
+    also involve released crack-face coefficients, so this projection is only
+    diagnostic.  Direct total-field stress is the primary C1 result.
     """
     coupled = sp.bmat(
         [[st.KG, st.KGL], [st.KGL.T, st.KL]],
@@ -839,6 +926,13 @@ def _project_ligament_reaction_stress(
         [residual_local[2 * int(cp) + 1] for cp in active],
         dtype=float,
     )
+    constrained_active = np.asarray(
+        [
+            (int(st.nnmG) + int(cp), 2) in st.full_siga_bc_map
+            for cp in active
+        ],
+        dtype=bool,
+    )
     consistent_coefficients = np.linalg.solve(mass, -reaction_y)
     lumped_measure = np.sum(mass, axis=1)
     lumped_coefficients = np.divide(
@@ -869,7 +963,34 @@ def _project_ligament_reaction_stress(
         )
         recovered_consistent[index] = float(basis @ consistent_local)
         recovered_lumped[index] = float(basis @ lumped_local)
-    return recovered_lumped, recovered_consistent
+    unconstrained_active = active[~constrained_active]
+    diagnostics = {
+        "active_bottom_control_point_count": int(len(active)),
+        "constrained_active_control_point_count": int(
+            np.count_nonzero(constrained_active)
+        ),
+        "unconstrained_active_control_point_ids": [
+            int(value) for value in unconstrained_active
+        ],
+        "basis_support_crosses_tip_bc_transition": bool(
+            len(unconstrained_active) > 0
+        ),
+        "valid_as_pure_constrained_reaction_projection": bool(
+            len(unconstrained_active) == 0
+        ),
+        "unconstrained_active_residual_max_abs": (
+            float(
+                np.max(
+                    np.abs(
+                        reaction_y[~constrained_active]
+                    )
+                )
+            )
+            if len(unconstrained_active) > 0
+            else 0.0
+        ),
+    }
+    return recovered_lumped, recovered_consistent, diagnostics
 
 
 def compute_full_siga_normalized_stress_yy() -> dict:
@@ -882,9 +1003,10 @@ def compute_full_siga_normalized_stress_yy() -> dict:
     evaluated with the same direct operator.
 
     ``lumped_projected_normalized_stress_yy`` is a useful B-spline analogue
-    of the legacy hS-IGA nodal-reaction curve.  The shorter
-    ``normalized_stress_yy`` key is retained as an output-format compatibility
-    alias for this projected result.
+    of the legacy hS-IGA nodal-reaction curve for C0.  It is diagnostic only
+    for C1 because the trace basis crosses the crack-face/ligament boundary
+    transition.  The shorter ``normalized_stress_yy`` key is retained as an
+    output-format compatibility alias for this projected result.
     """
     x_min, x_max, _, _ = st.local_iga_bounds
     tip_x = float(st.static_crack_tip_x)
@@ -908,7 +1030,11 @@ def compute_full_siga_normalized_stress_yy() -> dict:
         direct_stress.append(float(stress[1]))
         exact.append(stress_exact)
 
-    projected_stress, consistent_projected_stress = (
+    (
+        projected_stress,
+        consistent_projected_stress,
+        reaction_projection_diagnostics,
+    ) = (
         _project_ligament_reaction_stress(sample_x)
     )
     exact_array = np.asarray(exact, dtype=float)
@@ -932,6 +1058,66 @@ def compute_full_siga_normalized_stress_yy() -> dict:
         where=np.abs(exact_array) > 1.0e-14,
     )
 
+    _, tip_global_displacement, _ = _global_field_at(tip_x, 0.0)
+    _, tip_local_correction, _ = _local_field_at(tip_x, 0.0)
+    tip_total_displacement = tip_global_displacement + tip_local_correction
+    tip_support_ids = [
+        int(value) for value in st.full_siga_tip_nonzero_basis_cp
+    ]
+    crack_surface_ids = set(st.full_siga_local_crack_surface_cp)
+    exact_tip_ids = set(st.full_siga_local_tip_cp)
+    ligament_ids = set(st.full_siga_local_ligament_cp)
+    tip_support_classes = []
+    for local_id in tip_support_ids:
+        if local_id in crack_surface_ids:
+            tip_support_classes.append("crack_surface")
+        elif local_id in exact_tip_ids:
+            tip_support_classes.append("crack_tip")
+        elif local_id in ligament_ids:
+            tip_support_classes.append("ligament")
+        else:
+            tip_support_classes.append("unclassified")
+
+    tip_boundary_diagnostics = {
+        "continuity": str(st.local_iga_tip_continuity),
+        "knot_multiplicity": int(st.local_iga_tip_knot_multiplicity),
+        "extra_tip_knots_inserted": int(
+            st.local_iga_tip_extra_knot_count
+        ),
+        "exact_tip_control_point_count": int(
+            len(st.full_siga_local_tip_cp)
+        ),
+        "bc_transition_exactly_representable": bool(
+            st.full_siga_tip_bc_transition_exact
+        ),
+        "nonzero_basis_control_point_ids_at_tip": tip_support_ids,
+        "nonzero_basis_values_at_tip": [
+            float(value)
+            for value in st.full_siga_tip_nonzero_basis_values
+        ],
+        "nonzero_basis_control_point_x_at_tip": [
+            float(st.local_iga_control_points[local_id, 0])
+            for local_id in tip_support_ids
+        ],
+        "nonzero_basis_control_point_classes_at_tip": (
+            tip_support_classes
+        ),
+        "nonzero_basis_control_point_fix_y_at_tip": [
+            int(value)
+            for value in st.full_siga_tip_nonzero_basis_fix_y
+        ],
+        "global_displacement_at_tip": (
+            np.asarray(tip_global_displacement, dtype=float).tolist()
+        ),
+        "local_correction_displacement_at_tip": (
+            np.asarray(tip_local_correction, dtype=float).tolist()
+        ),
+        "total_displacement_at_tip": (
+            np.asarray(tip_total_displacement, dtype=float).tolist()
+        ),
+        "exact_displacement_at_tip": [0.0, 0.0],
+    }
+
     return {
         "case_name": str(st.static_case_label),
         "hG": float(st.static_case_hG),
@@ -941,12 +1127,22 @@ def compute_full_siga_normalized_stress_yy() -> dict:
         "nGy": int(st.static_case_nGy),
         "nhL": int(st.static_case_nhL),
         "dof": int(st.neq),
+        "local_tip_continuity": str(st.local_iga_tip_continuity),
+        "crack_tip_boundary_diagnostics": tip_boundary_diagnostics,
+        "reaction_projection_diagnostics": (
+            reaction_projection_diagnostics
+        ),
         "stress_recovery": "iga_boundary_reaction_lumped_projection",
         "recommended_cross_formulation_stress_recovery": (
             "direct_total_field_D_times_BG_uG_plus_BL_uL"
         ),
         "native_reaction_stress_recovery": (
             "iga_boundary_reaction_lumped_projection"
+        ),
+        "reaction_projection_role": (
+            "diagnostic_only_due_to_C1_tip_BC_support_overlap"
+            if st.local_iga_tip_continuity == "C1"
+            else "native_C0_boundary_reaction_analogue"
         ),
         "sample_x": np.asarray(sample_x, dtype=float).tolist(),
         "distance_from_tip": (np.asarray(sample_x) - tip_x).tolist(),
@@ -1140,6 +1336,12 @@ def _local_bc_rows() -> list[dict]:
     crack = set(st.full_siga_local_crack_surface_cp)
     tip = set(st.full_siga_local_tip_cp)
     ligament = set(st.full_siga_local_ligament_cp)
+    tip_basis_by_id = dict(
+        zip(
+            st.full_siga_tip_nonzero_basis_cp,
+            st.full_siga_tip_nonzero_basis_values,
+        )
+    )
     rows = []
     for local_id, point in enumerate(st.local_iga_control_points):
         combined_id = int(st.nnmG) + int(local_id)
@@ -1153,6 +1355,12 @@ def _local_bc_rows() -> list[dict]:
                 "is_crack_surface": int(local_id in crack),
                 "is_crack_tip": int(local_id in tip),
                 "is_ligament": int(local_id in ligament),
+                "is_nonzero_basis_at_tip": int(
+                    local_id in tip_basis_by_id
+                ),
+                "basis_value_at_tip": float(
+                    tip_basis_by_id.get(local_id, 0.0)
+                ),
                 "fix_x": int((combined_id, 1) in st.full_siga_bc_map),
                 "fix_y": int((combined_id, 2) in st.full_siga_bc_map),
             }
@@ -1172,6 +1380,14 @@ def write_full_siga_case_outputs(case_dir: Path, result: dict) -> None:
 
     with (case_dir / "full_siga_case_result.json").open("w") as stream:
         json.dump(result, stream, indent=2)
+    with (case_dir / "crack_tip_boundary_diagnostics.json").open(
+        "w"
+    ) as stream:
+        json.dump(
+            result["crack_tip_boundary_diagnostics"],
+            stream,
+            indent=2,
+        )
 
     with (case_dir / "normalized_stress_yy.csv").open("w", newline="") as stream:
         writer = csv.writer(stream)
@@ -1284,8 +1500,25 @@ def write_full_siga_case_outputs(case_dir: Path, result: dict) -> None:
         "nominal_hL": float(st.hL),
         "physical_span_over_nominal_hL": legacy_length_scale_ratio,
         "crack_tip_parameter": float(st.local_iga_tip_param),
-        "crack_tip_knot_multiplicity": int(st.local_iga_p),
-        "crack_tip_continuity": "C0",
+        "crack_tip_knot_multiplicity": int(
+            st.local_iga_tip_knot_multiplicity
+        ),
+        "crack_tip_extra_knots_inserted": int(
+            st.local_iga_tip_extra_knot_count
+        ),
+        "crack_tip_continuity": str(st.local_iga_tip_continuity),
+        "crack_tip_control_point_count": int(
+            len(st.full_siga_local_tip_cp)
+        ),
+        "crack_tip_bc_transition_policy": (
+            "split_bottom_control_coefficients_by_Greville_abscissa"
+        ),
+        "crack_tip_bc_transition_exactly_representable": bool(
+            st.full_siga_tip_bc_transition_exact
+        ),
+        "plain_open_uniform_local_knot_vector": bool(
+            st.local_iga_tip_extra_knot_count == 0
+        ),
         "ligament_fixity": str(st.full_siga_ligament_fixity),
         "coupling_gauss_points_per_direction": int(st.static_kgl_ngpGL),
         "coupling_cell_intersections": int(st.full_siga_coupling_intersections),
@@ -1295,6 +1528,10 @@ def write_full_siga_case_outputs(case_dir: Path, result: dict) -> None:
         "native_reaction_stress_recovery": (
             "iga_boundary_reaction_lumped_projection"
         ),
+        "reaction_projection_role": result["reaction_projection_role"],
+        "reaction_projection_diagnostics": result[
+            "reaction_projection_diagnostics"
+        ],
         "diagnostic_stress_recovery": "iga_boundary_reaction_consistent_l2_projection",
         "normalized_stress_yy_csv_semantics": (
             "alias_of_lumped_projected_normalized_stress_yy"
@@ -1309,6 +1546,16 @@ def write_full_siga_case_outputs(case_dir: Path, result: dict) -> None:
             "Global visual cells store the global field only; local visual "
             "cells store the total G+L field. Filter is_total_field_cell=1 "
             "to inspect the local total-field patch."
+        ),
+        "c1_methodological_note": (
+            "For C1, the standard trace basis crosses the crack-face/"
+            "ligament boundary-condition transition because no control point "
+            "lies exactly at the tip. Under direct coefficient constraints, "
+            "that transition is not exactly representable without added "
+            "modeling machinery."
+            if st.local_iga_tip_continuity == "C1"
+            else "Not applicable: the repeated C0 tip knot supplies an exact "
+            "tip control-point column."
         ),
         "computed_metrics": [
             "lumped_projected_normalized_stress_yy",
@@ -1335,6 +1582,7 @@ def write_full_siga_parent_summaries(
     rows = sorted(results, key=lambda row: (int(row["nGx"]), int(row["nhL"])))
     settings = {
         (
+            str(row.get("local_tip_continuity", "C0")),
             str(row.get("ligament_fixity", "")),
             int(row.get("coupling_order", -1)),
             str(row.get("recommended_cross_formulation_stress_recovery", "")),
@@ -1343,9 +1591,10 @@ def write_full_siga_parent_summaries(
     }
     if len(settings) > 1:
         raise ValueError(
-            "Refusing to combine full s-IGA cases with different ligament "
-            "fixity, coupling quadrature, or stress-recovery semantics. "
-            "Use a different --output-name for each campaign."
+            "Refusing to combine full s-IGA cases with different local tip "
+            "continuity, ligament fixity, coupling quadrature, or "
+            "stress-recovery semantics. Use a different --output-name for "
+            "each campaign."
         )
     max_points = max(
         (len(row["normalized_stress_yy"]) for row in rows),
@@ -1511,6 +1760,11 @@ def write_full_siga_parent_summaries(
         "formulation": "full_s_iga_static_reviewer_comparison",
         "case_count": len(rows),
         "case_names": [str(row["case_name"]) for row in rows],
+        "local_tip_continuity": (
+            str(rows[0].get("local_tip_continuity", "C0"))
+            if rows
+            else ""
+        ),
         "ligament_fixity": (
             str(rows[0].get("ligament_fixity", "")) if rows else ""
         ),
@@ -1523,12 +1777,33 @@ def write_full_siga_parent_summaries(
         "native_reaction_stress_recovery": (
             "iga_boundary_reaction_lumped_projection"
         ),
+        "reaction_projection_role": (
+            str(
+                rows[0].get(
+                    "reaction_projection_role",
+                    "native_C0_boundary_reaction_analogue",
+                )
+            )
+            if rows
+            else ""
+        ),
         "comparison_warning": (
             "For a strict hS-IGA/full-s-IGA stress-field comparison, use "
             "direct_normalized_stress_yy for both formulations. The native "
             "Q4 and B-spline reaction projections use different smoothing "
             "operators; the legacy hS-IGA metric also uses nominal hL rather "
             "than the actual physical local edge length."
+        ),
+        "c1_boundary_transition_warning": (
+            "The plain C1 local patch has no exact crack-tip control point. "
+            "Its trace basis crosses the crack-face/ligament coefficient-BC "
+            "transition, so reaction projection is diagnostic only."
+            if rows
+            and str(
+                rows[0].get("local_tip_continuity", "C0")
+            ).upper()
+            == "C1"
+            else ""
         ),
     }
     with (parent_dir / "full_siga_campaign_summary.json").open("w") as stream:

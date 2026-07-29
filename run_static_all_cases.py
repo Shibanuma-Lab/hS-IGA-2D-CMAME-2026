@@ -3,8 +3,8 @@
 Run all requested static sweeps and special static cases in one command.
 
 Requested campaign:
-1) fix rGL: rGL in [2, 4, 6, 8], nhL in range(5, 10000, 4)
-2) fix hG : nGx in [21, 41, 61, 81], nhL in range(5, 10000, 4)
+1) fix rGL: rGL in [2, 4, 6, 8], nhL in range(10, 10000, 4)
+2) fix hG : nGx in [21, 41, 61, 81], nhL in range(10, 10000, 4)
 3) fix hL : nhL in [20, 40, 60, 80, 160], nGx = 3,5,7,... until rGL<2
 4) special cases:
    a) nominal fix rGL=4 with (nGx, nhL) = (11,20), (21,40), (41,80)
