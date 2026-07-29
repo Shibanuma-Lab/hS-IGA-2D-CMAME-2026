@@ -14,7 +14,12 @@ from utils.nurbs import NURBS2DBasisDers, FindSpanMinus as FindSpan
 def makeKG():
     """Assemble global stiffness ``st.KG`` and mass ``st.MG``."""
 
-    st.nGPs = 3
+    # ``ngpG`` is the configured number of Gauss points in each parametric
+    # direction.  Keeping it configurable is essential for static all-matrix
+    # quadrature-sensitivity studies; the default remains 3x3.
+    st.nGPs = int(getattr(st, "ngpG", 3))
+    if st.nGPs <= 0:
+        raise ValueError(f"Invalid global Gauss order: {st.nGPs}")
     st.ndof = 2
     st.nCtrPts = st.nPtsX * st.nPtsY
     st.neqG = st.nCtrPts * st.ndof

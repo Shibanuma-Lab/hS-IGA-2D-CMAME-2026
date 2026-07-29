@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Run the static coupling-quadrature sensitivity study.
+Run the static all-matrix quadrature-sensitivity study.
 
 The default campaign reproduces the exact ``fix rGL=4`` paper mesh family,
 
@@ -16,20 +16,31 @@ The explicit construction is intentional: it avoids deriving local element
 counts from the slightly enlarged physical local-patch span, which would not
 reproduce the paper mesh family at sufficiently fine resolutions.
 
-and performs only the two additional coupling-quadrature calculations requested
-for the sensitivity study:
+and performs only the two additional quadrature calculations requested for the
+sensitivity study:
 
     2 x 2 and 4 x 4.
 
-The existing paper results are the 3 x 3 baseline and are therefore not
-recomputed by default.  Passing ``--orders 3`` explicitly remains available
-for an optional verification run.
+By default, a swept order is applied uniformly to the global stiffness matrix
+``K^G``, local stiffness matrix ``K^L``, and global--local coupling matrix
+``K^{GL}``.  Thus the two additional batches are respectively
+``(K^G, K^L, K^{GL}) = (2, 2, 2)`` and ``(4, 4, 4)`` Gauss points per
+parametric direction.  This is the appropriate definition when the reviewer
+metric is the global L2 error norm.  ``--quadrature-scope coupling_only`` is
+retained solely to reproduce the earlier coupling-only experiment.
+
+The existing paper results are the 3 x 3 all-matrix baseline and are therefore
+not recomputed by default.  Passing ``--orders 3`` explicitly remains
+available for an optional verification run.
 
 The usual per-order static CSV files are written below
-``static_results/quadrature_sensitivity_fix_rGL_4_paper_mesh/ngp_NxN/``.
+``static_results/quadrature_sensitivity_all_matrices_fix_rGL_4_paper_mesh/``
+under ``ngp_NxN/`` directories.  The legacy coupling-only campaign uses a
+different output directory and manifest, so its data cannot be mixed with the
+all-matrix study.
 Combined CSV files containing an additional ``gauss_order`` column, together
 with an auditable ``mesh_recipe.csv``, are created in
-``static_results/quadrature_sensitivity_fix_rGL_4_paper_mesh/``.
+``static_results/quadrature_sensitivity_all_matrices_fix_rGL_4_paper_mesh/``.
 
 Examples
 --------
@@ -70,10 +81,12 @@ from main import execution
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 STATIC_RESULTS_DIR = PROJECT_ROOT / "static_results"
-DEFAULT_OUTPUT_NAME = "quadrature_sensitivity_fix_rGL_4_paper_mesh"
+DEFAULT_OUTPUT_NAME = "quadrature_sensitivity_all_matrices_fix_rGL_4_paper_mesh"
 FIXED_RGL = 4.0
 PAPER_MESH_FAMILY = "paper_exact"
 LEGACY_MESH_FAMILY = "legacy_floor_span"
+ALL_MATRICES_SCOPE = "all_matrices"
+COUPLING_ONLY_SCOPE = "coupling_only"
 MANIFEST_FILENAME = "quadrature_campaign_manifest.json"
 SUMMARY_FILES = (
     "dof_l2_norm.csv",
@@ -151,10 +164,20 @@ def _campaign_manifest(
     nhl_step: int,
     dof_cap: int,
     max_cases: int,
+    quadrature_scope: str,
 ) -> dict:
+    if quadrature_scope == ALL_MATRICES_SCOPE:
+        quadrature_policy = "ngpG=ngpL=ngpGL=swept_order"
+    elif quadrature_scope == COUPLING_ONLY_SCOPE:
+        quadrature_policy = "ngpG=ngpL=baseline; ngpGL=swept_order"
+    else:
+        raise ValueError(f"Unsupported quadrature scope: {quadrature_scope}")
+
     return {
         "schema_version": 1,
-        "study": "static_coupling_quadrature_sensitivity",
+        "study": "static_quadrature_sensitivity",
+        "quadrature_scope": str(quadrature_scope),
+        "quadrature_policy": quadrature_policy,
         "fixed_nominal_rGL": FIXED_RGL,
         "mesh_family": str(mesh_family),
         "nhL_range": [int(nhl_start), int(nhl_stop), int(nhl_step)],
@@ -173,8 +196,8 @@ def _prepare_campaign_directory(output_name: str, manifest: dict) -> Path:
         if existing != manifest:
             raise ValueError(
                 f"{manifest_path.relative_to(PROJECT_ROOT)} belongs to a "
-                "different mesh recipe. Use a new --output-name instead of "
-                "mixing quadrature results."
+                "different mesh or quadrature recipe. Use a new --output-name "
+                "instead of mixing quadrature results."
             )
         return campaign_dir
 
@@ -290,6 +313,7 @@ def _configure_order(
     dof_cap: int,
     max_cases: int,
     metrics_only: bool,
+    quadrature_scope: str,
 ) -> list[dict]:
     # Reset all static defaults before preparing each independent batch.
     load_static_parameters(sweep_mode="fix_rGL")
@@ -303,12 +327,24 @@ def _configure_order(
         max_cases=max_cases,
     )
 
-    # Both values are set so the generic GL tables and the static KGL assembly
-    # use the same order.  ngpG and ngpL are intentionally left unchanged.
-    st.ngpGL = int(order)
-    st.static_kgl_ngpGL = int(order)
+    if quadrature_scope == ALL_MATRICES_SCOPE:
+        # The L2 norm is a global response quantity.  For the all-matrix
+        # quadrature study, use one consistent rule in all three stiffness
+        # contributions: K^G, K^L, and K^GL.
+        st.ngpG = int(order)
+        st.ngpL = int(order)
+        st.ngpGL = int(order)
+        st.static_kgl_ngpGL = int(order)
+    elif quadrature_scope == COUPLING_ONLY_SCOPE:
+        # Compatibility path for the earlier experiment.  load_static_parameters
+        # restores the 3x3 K^G/K^L baseline before each batch; only K^GL changes.
+        st.ngpGL = int(order)
+        st.static_kgl_ngpGL = int(order)
+    else:
+        raise ValueError(f"Unsupported quadrature scope: {quadrature_scope}")
 
     st.static_sweep_mode = "custom"
+    st.static_quadrature_scope = str(quadrature_scope)
     st.static_parallel_jobs = 1
     st.static_max_dof = int(dof_cap)
     st.static_parent_label = f"{output_name}/ngp_{order}x{order}"
@@ -326,15 +362,33 @@ def _configure_order(
     return cases
 
 
-def _print_batch(order: int, cases: Sequence[dict], dof_cap: int) -> None:
+def _effective_matrix_orders(order: int, quadrature_scope: str) -> tuple[int, int, int]:
+    """Return (K^G, K^L, K^GL) Gauss orders for summary metadata."""
+    if quadrature_scope == ALL_MATRICES_SCOPE:
+        return int(order), int(order), int(order)
+    if quadrature_scope == COUPLING_ONLY_SCOPE:
+        # Static defaults are p+1=3 for both uncoupled stiffness matrices.
+        return 3, 3, int(order)
+    raise ValueError(f"Unsupported quadrature scope: {quadrature_scope}")
+
+
+def _print_batch(
+    order: int,
+    cases: Sequence[dict],
+    dof_cap: int,
+    quadrature_scope: str,
+) -> None:
     if not cases:
         print(f"[SKIP] {order}x{order}: no case satisfies DOF cap={dof_cap}")
         return
 
     first = cases[0]
     last = cases[-1]
+    ngpG, ngpL, ngpGL = _effective_matrix_orders(order, quadrature_scope)
     print(
-        f"[BATCH] coupling quadrature={order}x{order}, cases={len(cases)}, "
+        f"[BATCH] scope={quadrature_scope}, "
+        f"(K^G,K^L,K^GL)=({ngpG}x{ngpG},{ngpL}x{ngpL},{ngpGL}x{ngpGL}), "
+        f"cases={len(cases)}, "
         f"mesh_family={first.get('mesh_family', LEGACY_MESH_FAMILY)}, "
         f"first(nhL={first['nhL']}, nGx={first['nGx']}, "
         f"dof={first['dof_estimate']}), "
@@ -369,8 +423,12 @@ def _discover_complete_orders(output_name: str) -> list[int]:
     return sorted(set(orders))
 
 
-def _write_combined_summaries(output_name: str, orders: Sequence[int]) -> None:
-    """Combine available standard summaries and add the swept Gauss order."""
+def _write_combined_summaries(
+    output_name: str,
+    orders: Sequence[int],
+    quadrature_scope: str,
+) -> None:
+    """Combine standard summaries and record each matrix's Gauss order."""
     campaign_dir = STATIC_RESULTS_DIR / output_name
     campaign_dir.mkdir(parents=True, exist_ok=True)
 
@@ -391,14 +449,34 @@ def _write_combined_summaries(output_name: str, orders: Sequence[int]) -> None:
                     continue
 
                 if combined_header is None:
-                    combined_header = ["gauss_order", "quadrature"] + header
-                elif combined_header[2:] != header:
+                    combined_header = [
+                        "quadrature_scope",
+                        "ngp_KG",
+                        "ngp_KL",
+                        "ngp_KGL",
+                        "gauss_order",
+                        "quadrature",
+                    ] + header
+                elif combined_header[6:] != header:
                     raise ValueError(
                         f"Incompatible columns while combining {source}: {header}"
                     )
 
                 for row in reader:
-                    combined_rows.append([str(order), f"{order}x{order}", *row])
+                    ngpG, ngpL, ngpGL = _effective_matrix_orders(
+                        order, quadrature_scope
+                    )
+                    combined_rows.append(
+                        [
+                            quadrature_scope,
+                            str(ngpG),
+                            str(ngpL),
+                            str(ngpGL),
+                            str(order),
+                            f"{order}x{order}",
+                            *row,
+                        ]
+                    )
 
         if combined_header is None:
             continue
@@ -415,8 +493,8 @@ def _write_combined_summaries(output_name: str, orders: Sequence[int]) -> None:
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Sweep the coupling-matrix Gauss order for the static nominal "
-            "fix-rGL=4 cases."
+            "Sweep static Gauss quadrature for the nominal fix-rGL=4 cases. "
+            "The default applies the selected order to K^G, K^L, and K^GL."
         )
     )
     parser.add_argument(
@@ -427,6 +505,15 @@ def _parse_args() -> argparse.Namespace:
         help=(
             "Gauss points per parametric direction (default: 2 4; "
             "the existing paper results provide the 3x3 baseline)."
+        ),
+    )
+    parser.add_argument(
+        "--quadrature-scope",
+        choices=(ALL_MATRICES_SCOPE, COUPLING_ONLY_SCOPE),
+        default=ALL_MATRICES_SCOPE,
+        help=(
+            "all_matrices applies each order to K^G, K^L, and K^GL "
+            "(default); coupling_only retains the legacy K^GL-only sweep."
         ),
     )
     parser.add_argument(
@@ -506,12 +593,13 @@ def main() -> int:
 
     print(f"Project root: {PROJECT_ROOT}")
     print(f"Static mesh family: {args.mesh_family}, nominal fix rGL=4")
-    print("Existing paper baseline: coupling quadrature=3x3 (not recomputed by default)")
+    print("Existing paper baseline: (K^G,K^L,K^GL)=(3x3,3x3,3x3) (not recomputed by default)")
     print(
         "nhL range: "
         f"range({args.nhl_start}, {args.nhl_stop}, {args.nhl_step})"
     )
-    print(f"Coupling quadrature orders: {orders}")
+    print(f"Quadrature scope: {args.quadrature_scope}")
+    print(f"Swept quadrature orders: {orders}")
     print(f"DOF cap: {args.dof_cap}")
     print(f"Output: static_results/{output_name}")
     print(f"Metrics only: {bool(args.metrics_only)}")
@@ -527,6 +615,7 @@ def main() -> int:
                     nhl_step=int(args.nhl_step),
                     dof_cap=int(args.dof_cap),
                     max_cases=int(args.max_cases),
+                    quadrature_scope=str(args.quadrature_scope),
                 ),
             )
         except ValueError as exc:
@@ -545,11 +634,17 @@ def main() -> int:
                 dof_cap=int(args.dof_cap),
                 max_cases=int(args.max_cases),
                 metrics_only=bool(args.metrics_only),
+                quadrature_scope=str(args.quadrature_scope),
             )
         except ValueError as exc:
             raise SystemExit(str(exc)) from exc
 
-        _print_batch(order, cases, int(args.dof_cap))
+        _print_batch(
+            order,
+            cases,
+            int(args.dof_cap),
+            str(args.quadrature_scope),
+        )
         if not args.dry_run and not recipe_written:
             _write_mesh_recipe(output_name, cases)
             recipe_written = True
@@ -570,13 +665,17 @@ def main() -> int:
         )
         execution()
         available_orders = _discover_complete_orders(output_name)
-        _write_combined_summaries(output_name, available_orders)
-        print(f"[DONE] coupling quadrature={order}x{order}")
+        _write_combined_summaries(
+            output_name, available_orders, str(args.quadrature_scope)
+        )
+        print(f"[DONE] quadrature batch={order}x{order}")
 
     if not args.dry_run:
         available_orders = _discover_complete_orders(output_name)
         if available_orders:
-            _write_combined_summaries(output_name, available_orders)
+            _write_combined_summaries(
+                output_name, available_orders, str(args.quadrature_scope)
+            )
         print(
             "[DONE] Quadrature-sensitivity campaign finished. "
             f"Available complete orders: {available_orders}"

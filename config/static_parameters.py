@@ -177,7 +177,9 @@ def load_static_parameters(sweep_mode: str = "fix_rGL"):
     st.static_crack_tip_x = 1.0
     st.static_local_half_span = 0.5 * math.sqrt(1.01)
 
-    st.ngpG = 2
+    # The paper's static baseline uses 3x3 in all three stiffness matrices.
+    # Keep this explicit now that make_KG honours ``ngpG``.
+    st.ngpG = st.p + 1
     st.ngpL = st.p + 1
     st.ngpGL = st.p + 1
     st.static_kgl_ngpGL = 3
