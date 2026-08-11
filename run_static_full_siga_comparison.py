@@ -8,13 +8,17 @@ correction mesh by an isolated quadratic IGA correction patch.
 
 Cases
 -----
-1. hG = 2/21, nhL = 40
-2. hG = 2/41, nhL = 80
+The standard C1/C0 campaign uses ``nhL = 40, 80``.  An explicit
+``odd_tip_control_point`` C1 experiment uses ``nhL = 41, 81`` and 41/81 local
+x spans, respectively.  It places a Greville control point at the physical
+crack tip without inserting a knot; it is intentionally retained as a
+separate, non-exact crack-representation experiment.
 
 The default local patch is a standard open-uniform quadratic B-spline patch:
-no additional/repeated crack-tip knot is inserted, so it remains C1 at the
-tip.  The previous C0 tip-knot-inserted formulation remains available as an
-explicit comparison mode.  Only normalized stress yy is evaluated.  Direct total-field stress is
+no additional/repeated crack-tip knot is inserted.  Its standard even-span
+layout is C1 at the tip knot line; the odd control-point experiment places the
+tip inside a smooth span instead.  The previous C0 tip-knot-inserted
+formulation remains available as an explicit comparison mode.  Only normalized stress yy is evaluated.  Direct total-field stress is
 the recommended curve for a strict cross-formulation comparison.  L2 error,
 SIF, and J-integral are deliberately skipped because their existing
 implementations assume a nodal Q4 local mesh.  A combined global/local VTU
@@ -62,9 +66,14 @@ from solver.solve import solve
 PROJECT_ROOT = Path(__file__).resolve().parent
 STATIC_RESULTS_DIR = PROJECT_ROOT / "static_results"
 DEFAULT_OUTPUT_NAMES = {
-    "c1": "full_siga_static_comparison_c1",
-    "c0": "full_siga_static_comparison",
+    ("c1", "even_knot_line"): "full_siga_static_comparison_c1",
+    ("c1", "odd_tip_control_point"): (
+        "full_siga_static_comparison_c1_odd_tip_control_point"
+    ),
+    ("c0", "even_knot_line"): "full_siga_static_comparison",
 }
+EVEN_KNOT_LINE_GRID = "even_knot_line"
+ODD_TIP_CONTROL_POINT_GRID = "odd_tip_control_point"
 CAMPAIGN_SCHEMA_VERSION = 1
 
 
@@ -78,15 +87,23 @@ def _validate_output_name(value: str) -> str:
     return name
 
 
-def _case_label(nGx: int, nhL: int, local_tip_continuity: str) -> str:
+def _case_label(
+    nGx: int,
+    nhL: int,
+    local_tip_continuity: str,
+    local_grid: str,
+) -> str:
     continuity = str(local_tip_continuity).lower()
     prefix = "full_siga" if continuity == "c0" else f"full_siga_{continuity}"
+    if str(local_grid) == ODD_TIP_CONTROL_POINT_GRID:
+        prefix += "_odd_tip_cp"
     return f"{prefix}_hG_2_over_{int(nGx)}_nhL_{int(nhL)}"
 
 
 def build_target_cases(
     nGy_overrides: tuple[int, int] | None = None,
     local_tip_continuity: str = "c1",
+    local_grid: str = EVEN_KNOT_LINE_GRID,
 ) -> list[dict]:
     """Build the two meshes requested for the reviewer comparison."""
     continuity = str(local_tip_continuity).lower()
@@ -94,30 +111,56 @@ def build_target_cases(
         raise ValueError(
             "local_tip_continuity must be 'c1' or 'c0'"
         )
+    local_grid = str(local_grid)
+    if local_grid not in {EVEN_KNOT_LINE_GRID, ODD_TIP_CONTROL_POINT_GRID}:
+        raise ValueError(f"Unsupported local grid: {local_grid}")
+    if local_grid == ODD_TIP_CONTROL_POINT_GRID and continuity != "c1":
+        raise ValueError(
+            "odd_tip_control_point is a plain-C1 experiment; use "
+            "--local-tip-continuity c1"
+        )
+
     cases = []
-    targets = ((21, 40), (41, 80))
+    targets = (
+        ((21, 40), (41, 80))
+        if local_grid == EVEN_KNOT_LINE_GRID
+        else ((21, 41), (41, 81))
+    )
     for index, (nGx, nhL) in enumerate(targets):
         if nGy_overrides is None:
             nGy = _nGy_from_nGx_exact(nGx)
         else:
             nGy = int(nGy_overrides[index])
-        half = nhL // 2
+        if local_grid == EVEN_KNOT_LINE_GRID:
+            half = nhL // 2
+            aL = half
+            lL = half
+            HL = half
+        else:
+            # The local IGA patch itself stays physically symmetric around
+            # x=1.  These counts make nLr=aL+lL truly odd, which places a
+            # quadratic Greville point at the physical centre/crack tip.
+            aL = (nhL - 1) // 2
+            lL = aL + 1
+            HL = aL
         hG = float(st.static_width) / float(nGx)
         hL = 1.0 / float(nhL)
         case = _make_case_with_counts(
             nhL=nhL,
             nGx=nGx,
             nGy=nGy,
-            aL=half,
-            lL=half,
-            HL=half,
+            aL=aL,
+            lL=lL,
+            HL=HL,
             rGL=hG / hL,
         )
         case["full_siga_tip_continuity"] = continuity.upper()
+        case["full_siga_local_grid"] = local_grid
         case["full_siga_label"] = _case_label(
             nGx,
             nhL,
             continuity,
+            local_grid,
         )
         cases.append(case)
     return cases
@@ -141,6 +184,7 @@ def configure_campaign(
     output_name: str,
     coupling_order: int,
     local_tip_continuity: str,
+    local_grid: str,
     nGy_overrides: tuple[int, int] | None = None,
 ) -> list[dict]:
     load_static_parameters(sweep_mode="fix_rGL")
@@ -148,6 +192,7 @@ def configure_campaign(
     cases = build_target_cases(
         nGy_overrides=nGy_overrides,
         local_tip_continuity=continuity,
+        local_grid=local_grid,
     )
 
     st.static_sweep_mode = "custom"
@@ -159,6 +204,7 @@ def configure_campaign(
     st.full_siga_local_q = int(st.q)
     st.full_siga_local_ngp = int(st.p) + 1
     st.full_siga_local_tip_continuity = continuity.upper()
+    st.full_siga_local_grid = str(local_grid)
     st.local_discretization = "iga"
 
     # The dedicated writer below replaces the legacy Q4 savedata/metrics path.
@@ -187,12 +233,14 @@ def _campaign_manifest(
     coupling_order: int,
     ligament_fixity: str,
     local_tip_continuity: str,
+    local_grid: str,
 ) -> dict:
     return {
         "schema_version": CAMPAIGN_SCHEMA_VERSION,
         "formulation": "full_s_iga_static_reviewer_comparison",
         "local_discretization": "quadratic_iga",
         "local_tip_continuity": str(local_tip_continuity).upper(),
+        "local_grid": str(local_grid),
         "ligament_fixity": str(ligament_fixity),
         "coupling_gauss_points_per_direction": int(coupling_order),
         "recommended_cross_formulation_stress_recovery": (
@@ -225,6 +273,12 @@ def _prepare_campaign_directory(output_name: str, manifest: dict) -> None:
     if manifest_path.is_file():
         with manifest_path.open() as stream:
             existing = json.load(stream)
+        # Campaigns created before the odd-grid experiment did not record the
+        # implicit even-knot-line layout.  Treat that omission as the known
+        # legacy default rather than rejecting an otherwise identical C1/C0
+        # baseline directory.
+        if "local_grid" not in existing:
+            existing = {**existing, "local_grid": EVEN_KNOT_LINE_GRID}
         if existing != manifest:
             raise ValueError(
                 f"{manifest_path.relative_to(PROJECT_ROOT)} belongs to a "
@@ -329,6 +383,7 @@ def run_case(
     result["local_control_point_count"] = int(st.nnmL)
     result["local_element_count"] = int(st.nemL)
     result["local_tip_continuity"] = str(st.local_iga_tip_continuity)
+    result["local_grid"] = str(getattr(st, "full_siga_local_grid", ""))
     result["ligament_fixity"] = str(ligament_fixity)
     result["coupling_order"] = int(st.static_kgl_ngpGL)
 
@@ -359,7 +414,7 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Run static full s-IGA local-patch comparisons for "
-            "(hG=2/21, nhL=40) and (hG=2/41, nhL=80)."
+            "the standard 40/80 or odd-tip-control-point 41/81 cases."
         )
     )
     parser.add_argument(
@@ -367,8 +422,8 @@ def _parse_args() -> argparse.Namespace:
         choices=("all", "coarse", "fine"),
         default="all",
         help=(
-            "Case selection: coarse=2/21+40, fine=2/41+80 "
-            "(default: all)."
+            "Case selection; the local-grid option selects 40/80 or 41/81 "
+            "for coarse/fine (default: all)."
         ),
     )
     parser.add_argument(
@@ -386,6 +441,17 @@ def _parse_args() -> argparse.Namespace:
             "plain open-uniform knot vector with no additional/repeated tip "
             "knot insertion "
             "(default); c0 inserts one additional tip knot."
+        ),
+    )
+    parser.add_argument(
+        "--local-grid",
+        choices=(EVEN_KNOT_LINE_GRID, ODD_TIP_CONTROL_POINT_GRID),
+        default=EVEN_KNOT_LINE_GRID,
+        help=(
+            "even_knot_line uses the 40/80-span baseline (default); "
+            "odd_tip_control_point uses 41/81 x spans so a quadratic "
+            "Greville control point lies at the physical crack tip. The "
+            "latter is a C1 diagnostic experiment, not an exact crack split."
         ),
     )
     parser.add_argument(
@@ -414,8 +480,7 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help=(
             "Relative campaign directory below static_results. Defaults to "
-            "full_siga_static_comparison_c1 for c1 and the existing "
-            "full_siga_static_comparison directory for c0."
+            "a distinct directory for each C1/C0 and local-grid formulation."
         ),
     )
     parser.add_argument(
@@ -443,10 +508,16 @@ def main() -> int:
     if args.ngy is not None and any(int(value) < 1 for value in args.ngy):
         raise SystemExit("--ngy values must be positive")
     continuity = str(args.local_tip_continuity).lower()
+    local_grid = str(args.local_grid)
+    if local_grid == ODD_TIP_CONTROL_POINT_GRID and continuity != "c1":
+        raise SystemExit(
+            "--local-grid odd_tip_control_point requires "
+            "--local-tip-continuity c1"
+        )
     requested_output_name = (
         args.output_name
         if args.output_name is not None
-        else DEFAULT_OUTPUT_NAMES[continuity]
+        else DEFAULT_OUTPUT_NAMES[(continuity, local_grid)]
     )
     try:
         output_name = _validate_output_name(requested_output_name)
@@ -457,6 +528,7 @@ def main() -> int:
         output_name=output_name,
         coupling_order=int(args.coupling_order),
         local_tip_continuity=continuity,
+        local_grid=local_grid,
         nGy_overrides=(
             (int(args.ngy[0]), int(args.ngy[1]))
             if args.ngy is not None
@@ -489,14 +561,24 @@ def main() -> int:
     )
     print("VTU stress recovery: direct total field")
     if continuity == "c1":
-        print(
-            "Local tip continuity: C1 "
-            "(plain knot vector; no additional tip repetition)"
-        )
-        print(
-            "Tip BC limitation: no control point lies exactly at the crack "
-            "tip, so the crack-face/ligament transition is not exact"
-        )
+        if local_grid == ODD_TIP_CONTROL_POINT_GRID:
+            print(
+                "Local grid: odd 41/81 x spans; one Greville control point "
+                "lies at the crack tip inside a smooth span of the plain C1 patch"
+            )
+            print(
+                "Tip BC limitation: fixing that coefficient reduces but does "
+                "not remove crack-face basis support at the tip"
+            )
+        else:
+            print(
+                "Local tip continuity: C1 "
+                "(plain knot vector; no additional tip repetition)"
+            )
+            print(
+                "Tip BC limitation: no control point lies exactly at the crack "
+                "tip, so the crack-face/ligament transition is not exact"
+            )
     else:
         print("Local tip continuity: C0 (one additional tip knot inserted)")
     print(f"Ligament fixity: {args.ligament_fixity}")
@@ -511,6 +593,7 @@ def main() -> int:
                     coupling_order=int(args.coupling_order),
                     ligament_fixity=str(args.ligament_fixity),
                     local_tip_continuity=continuity,
+                    local_grid=local_grid,
                 ),
             )
         except ValueError as exc:

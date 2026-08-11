@@ -100,9 +100,12 @@ def build_local_iga_mesh() -> None:
 
     Two crack-tip variants are supported for the quadratic local basis:
 
-    - ``C1``: a plain open-uniform knot vector.  No additional/repeated
-      crack-tip knot is inserted, and no control-point column lies exactly at
-      the tip.
+    - ``C1``: a plain open-uniform knot vector with no additional/repeated
+      crack-tip knot.  With an even number of local x spans, the tip is a
+      simple-knot line and has no control-point column.  With an odd number,
+      the tip lies inside the central span and one Greville control point is
+      located at the tip; this remains a smooth, non-interpolatory C1-patch
+      representation, not an exact crack-boundary split.
     - ``C0``: one additional crack-tip knot is inserted, producing a tip
       control-point column and C0 continuity at that section.
     """
@@ -123,21 +126,44 @@ def build_local_iga_mesh() -> None:
 
     nelem_u = int(st.nLr)
     nelem_v = int(st.HL)
-    if nelem_u % 2 != 0:
-        raise ValueError(
-            "The full s-IGA comparison requires an even local x-element count "
-            "so the crack tip is a knot line."
-        )
+    if nelem_u < 2:
+        raise ValueError("The full s-IGA comparison requires at least two local x spans")
 
-    tip_knot_index = int(st.aL)
-    if tip_knot_index <= 0 or tip_knot_index >= nelem_u:
-        raise ValueError(
-            f"Invalid crack-tip knot index aL={tip_knot_index} for {nelem_u} elements"
-        )
+    half_span = float(st.static_local_half_span)
+    x_min = float(st.static_crack_tip_x) - half_span
+    x_max = float(st.static_crack_tip_x) + half_span
+    y_min = 0.0
+    y_max = half_span
+    tip_param = (float(st.static_crack_tip_x) - x_min) / (x_max - x_min)
+    if not 0.0 < tip_param < 1.0:
+        raise ValueError(f"Crack-tip parameter must be interior, got {tip_param}")
 
-    c0_indices = (
-        (tip_knot_index,) if requested_continuity == "C0" else ()
+    # C0 requires the physical tip to coincide with an existing uniform knot
+    # line.  The plain-C1 experiment is also meaningful for odd span counts:
+    # then the physical tip is at the centre of a span and possesses one
+    # Greville control point, but no C0 boundary-condition split.
+    uniform_tip_index = int(round(tip_param * nelem_u))
+    tip_on_uniform_knot = bool(
+        np.isclose(
+            tip_param * nelem_u,
+            uniform_tip_index,
+            rtol=0.0,
+            atol=1.0e-12,
+        )
     )
+    if requested_continuity == "C0":
+        if not tip_on_uniform_knot:
+            raise ValueError(
+                "C0 local IGA requires the crack tip to be an existing knot "
+                "line; use an even local x-span count."
+            )
+        if uniform_tip_index <= 0 or uniform_tip_index >= nelem_u:
+            raise ValueError(
+                "The C0 crack-tip knot must be an interior local x knot"
+            )
+        c0_indices = (uniform_tip_index,)
+    else:
+        c0_indices = ()
     knot_u = _open_uniform_knot_vector(
         nelem_u,
         p_local,
@@ -151,12 +177,6 @@ def build_local_iga_mesh() -> None:
     ncp_v = len(knot_v) - q_local - 1
     greville_u = _greville_abscissae(knot_u, p_local)
     greville_v = _greville_abscissae(knot_v, q_local)
-
-    half_span = float(st.static_local_half_span)
-    x_min = float(st.static_crack_tip_x) - half_span
-    x_max = float(st.static_crack_tip_x) + half_span
-    y_min = 0.0
-    y_max = half_span
 
     cp_x = x_min + (x_max - x_min) * greville_u
     cp_y = y_min + (y_max - y_min) * greville_v
@@ -234,21 +254,35 @@ def build_local_iga_mesh() -> None:
     st.local_iga_vis_nodes = vis_nodes
     st.local_iga_vis_elements = np.asarray(vis_elements, dtype=int)
     st.local_iga_bounds = (x_min, x_max, y_min, y_max)
-    tip_param = float(tip_knot_index) / float(nelem_u)
     tip_knot_multiplicity = int(
         np.count_nonzero(
             np.isclose(knot_u, tip_param, rtol=0.0, atol=1.0e-14)
         )
     )
-    actual_continuity = f"C{p_local - tip_knot_multiplicity}"
-    if actual_continuity != requested_continuity:
+    tip_is_knot_line = bool(tip_knot_multiplicity > 0)
+    point_continuity = (
+        f"C{p_local - tip_knot_multiplicity}"
+        if tip_is_knot_line
+        else "Cinf"
+    )
+    if requested_continuity == "C0" and point_continuity != "C0":
         raise RuntimeError(
-            "Unexpected crack-tip continuity: requested "
-            f"{requested_continuity}, constructed {actual_continuity}"
+            "Unexpected crack-tip continuity: requested C0, constructed "
+            f"{point_continuity}"
+        )
+    if requested_continuity == "C1" and tip_is_knot_line and point_continuity != "C1":
+        raise RuntimeError(
+            "Unexpected crack-tip continuity: requested C1, constructed "
+            f"{point_continuity}"
         )
     st.local_iga_tip_param = tip_param
     st.local_iga_tip_knot_multiplicity = tip_knot_multiplicity
-    st.local_iga_tip_continuity = actual_continuity
+    # Keep the requested C1/C0 mode as the public formulation label.  For an
+    # odd C1 mesh the physical tip sits inside a span (Cinf point smoothness),
+    # which is recorded separately below.
+    st.local_iga_tip_continuity = requested_continuity
+    st.local_iga_tip_point_continuity = point_continuity
+    st.local_iga_tip_is_knot_line = tip_is_knot_line
     st.local_iga_tip_extra_knot_count = max(
         tip_knot_multiplicity - 1,
         0,
@@ -270,7 +304,9 @@ def build_local_iga_mesh() -> None:
     tip_columns = np.where(
         np.isclose(cp_x, float(st.static_crack_tip_x), rtol=0.0, atol=1.0e-12)
     )[0]
-    expected_tip_columns = 1 if requested_continuity == "C0" else 0
+    expected_tip_columns = 1 if (
+        requested_continuity == "C0" or not tip_is_knot_line
+    ) else 0
     if len(tip_columns) != expected_tip_columns:
         raise RuntimeError(
             f"Expected {expected_tip_columns} local IGA control-point columns "
@@ -641,8 +677,10 @@ def apply_full_siga_static_boundary(
     right, and top patch boundaries.  Along y=0, crack-face control points
     behind the tip are released.  Ligament control points have their normal
     (y) correction fixed; a C0 mesh also has an exact crack-tip control point
-    that is fixed.  A plain C1 mesh has no exact tip control point, so basis
-    support necessarily crosses the boundary-condition transition.
+    that is fixed.  A plain C1 mesh cannot separate the crack-face and
+    ligament trace spaces exactly: even if an odd-span mesh places a control
+    point at the tip, its non-interpolatory basis support crosses the
+    boundary-condition transition.
     ``ligament_fixity='xy'`` can fix both correction components for a literal
     fully-fixed variant.
     """
@@ -878,10 +916,13 @@ def _project_ligament_reaction_stress(
     ncp_u = int(st.local_iga_ncp_u)
     tip_param = float(st.local_iga_tip_param)
     unique_u = np.asarray(st.local_iga_unique_u, dtype=float)
+    # For an odd-span local patch the physical tip lies inside the central
+    # knot span.  Retain its ligament-side subinterval instead of discarding
+    # it merely because the span's left knot is still on the crack face.
     right_ranges = [
-        (float(unique_u[index]), float(unique_u[index + 1]))
+        (max(float(unique_u[index]), tip_param), float(unique_u[index + 1]))
         for index in range(len(unique_u) - 1)
-        if float(unique_u[index]) >= tip_param - 1.0e-14
+        if float(unique_u[index + 1]) > tip_param + 1.0e-14
     ]
 
     active_cp: set[int] = set()
@@ -1080,6 +1121,8 @@ def compute_full_siga_normalized_stress_yy() -> dict:
 
     tip_boundary_diagnostics = {
         "continuity": str(st.local_iga_tip_continuity),
+        "point_continuity": str(st.local_iga_tip_point_continuity),
+        "tip_is_knot_line": bool(st.local_iga_tip_is_knot_line),
         "knot_multiplicity": int(st.local_iga_tip_knot_multiplicity),
         "extra_tip_knots_inserted": int(
             st.local_iga_tip_extra_knot_count
@@ -1128,6 +1171,7 @@ def compute_full_siga_normalized_stress_yy() -> dict:
         "nhL": int(st.static_case_nhL),
         "dof": int(st.neq),
         "local_tip_continuity": str(st.local_iga_tip_continuity),
+        "local_grid": str(getattr(st, "full_siga_local_grid", "")),
         "crack_tip_boundary_diagnostics": tip_boundary_diagnostics,
         "reaction_projection_diagnostics": (
             reaction_projection_diagnostics
@@ -1489,6 +1533,7 @@ def write_full_siga_case_outputs(case_dir: Path, result: dict) -> None:
         "formulation": "full_s_iga_static_reviewer_comparison",
         "global_degree": [int(st.p), int(st.q)],
         "local_degree": [int(st.local_iga_p), int(st.local_iga_q)],
+        "local_grid": str(getattr(st, "full_siga_local_grid", "")),
         "local_elements": [int(st.nLr), int(st.HL)],
         "local_control_points": [
             int(st.local_iga_ncp_u),
@@ -1500,6 +1545,8 @@ def write_full_siga_case_outputs(case_dir: Path, result: dict) -> None:
         "nominal_hL": float(st.hL),
         "physical_span_over_nominal_hL": legacy_length_scale_ratio,
         "crack_tip_parameter": float(st.local_iga_tip_param),
+        "crack_tip_is_knot_line": bool(st.local_iga_tip_is_knot_line),
+        "crack_tip_point_continuity": str(st.local_iga_tip_point_continuity),
         "crack_tip_knot_multiplicity": int(
             st.local_iga_tip_knot_multiplicity
         ),
@@ -1549,10 +1596,11 @@ def write_full_siga_case_outputs(case_dir: Path, result: dict) -> None:
         ),
         "c1_methodological_note": (
             "For C1, the standard trace basis crosses the crack-face/"
-            "ligament boundary-condition transition because no control point "
-            "lies exactly at the tip. Under direct coefficient constraints, "
-            "that transition is not exactly representable without added "
-            "modeling machinery."
+            "ligament boundary-condition transition. An odd-span mesh may "
+            "place a control point at the tip, but B-spline control points "
+            "are not interpolatory; under direct coefficient constraints, "
+            "the transition is still not exactly representable without "
+            "added modeling machinery."
             if st.local_iga_tip_continuity == "C1"
             else "Not applicable: the repeated C0 tip knot supplies an exact "
             "tip control-point column."
@@ -1583,6 +1631,7 @@ def write_full_siga_parent_summaries(
     settings = {
         (
             str(row.get("local_tip_continuity", "C0")),
+            str(row.get("local_grid") or "even_knot_line"),
             str(row.get("ligament_fixity", "")),
             int(row.get("coupling_order", -1)),
             str(row.get("recommended_cross_formulation_stress_recovery", "")),
@@ -1592,9 +1641,9 @@ def write_full_siga_parent_summaries(
     if len(settings) > 1:
         raise ValueError(
             "Refusing to combine full s-IGA cases with different local tip "
-            "continuity, ligament fixity, coupling quadrature, or "
-            "stress-recovery semantics. Use a different --output-name for "
-            "each campaign."
+            "continuity, local grid, ligament fixity, coupling quadrature, "
+            "or stress-recovery semantics. Use a different --output-name "
+            "for each campaign."
         )
     max_points = max(
         (len(row["normalized_stress_yy"]) for row in rows),
@@ -1765,6 +1814,9 @@ def write_full_siga_parent_summaries(
             if rows
             else ""
         ),
+        "local_grid": (
+            str(rows[0].get("local_grid") or "even_knot_line") if rows else ""
+        ),
         "ligament_fixity": (
             str(rows[0].get("ligament_fixity", "")) if rows else ""
         ),
@@ -1795,9 +1847,11 @@ def write_full_siga_parent_summaries(
             "than the actual physical local edge length."
         ),
         "c1_boundary_transition_warning": (
-            "The plain C1 local patch has no exact crack-tip control point. "
-            "Its trace basis crosses the crack-face/ligament coefficient-BC "
-            "transition, so reaction projection is diagnostic only."
+            "The plain C1 local patch does not provide an exact C0 "
+            "crack-face/ligament trace split. Its basis crosses the "
+            "coefficient-BC transition, so reaction projection is "
+            "diagnostic only. An odd-span layout can align a control point "
+            "with the tip but does not remove this limitation."
             if rows
             and str(
                 rows[0].get("local_tip_continuity", "C0")
