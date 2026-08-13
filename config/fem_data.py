@@ -52,11 +52,12 @@ def build_fem_mat_filename(v=None, crack_length_mm=None, prefix=None) -> str:
     return f"{prefix}_v_{v_int}_a_{a_mm}.mat"
 
 
-def build_fem_h5_dirname(v=None, prefix=None) -> str:
+def build_fem_h5_dirname(v=None, crack_length_mm=None, prefix=None) -> str:
     if prefix is None:
-        prefix = str(getattr(st, "fem_h5_dir_prefix", "h5_export_v"))
+        prefix = str(getattr(st, "fem_h5_dir_prefix", "h5_export_V_"))
     v_int = _auto_velocity_value() if v is None else int(float(v))
-    return f"{prefix}{v_int}"
+    a_mm = _auto_crack_length_mm() if crack_length_mm is None else int(crack_length_mm)
+    return f"{prefix}{v_int}_a_{a_mm}"
 
 
 def _best_mat_match_by_velocity(prefix: str, v_int: int, a_mm_target: int):
@@ -96,11 +97,11 @@ def _resolve_user_path(path_str: str) -> Path:
     return cand_root
 
 
-def _auto_h5_dir(v_int: int) -> Path:
+def _auto_h5_dir(v_int: int, a_mm: Optional[int] = None) -> Path:
     cfg = str(getattr(st, "fem_h5_dir", "auto")).strip()
     if cfg != "" and cfg.lower() != "auto":
         return _resolve_user_path(cfg)
-    return (_FEM_DIR / build_fem_h5_dirname(v=v_int)).resolve()
+    return (_FEM_DIR / build_fem_h5_dirname(v=v_int, crack_length_mm=a_mm)).resolve()
 
 
 def _prefer_h5_for_current_case(a_mm: Optional[int] = None) -> bool:
@@ -139,7 +140,7 @@ def resolve_fem_reference_path(data_file=None, source_preference=None) -> Tuple[
         prefer_h5 = _prefer_h5_for_current_case(a_mm=a_mm)
 
         mat_exact = (_FEM_DIR / build_fem_mat_filename(v=v_int, crack_length_mm=a_mm, prefix=prefix)).resolve()
-        h5_dir = _auto_h5_dir(v_int)
+        h5_dir = _auto_h5_dir(v_int, a_mm=a_mm)
 
         if src_pref == "h5":
             return "h5", h5_dir

@@ -92,12 +92,12 @@ def load_parameters(rGL_value=2):
     # FEM reference input (single source for BC interpolation + FEM J-integral)
     # "auto" mode:
     #   - if c_crack <= fem_mat_max_crack_mm: MAT
-    #   - else: H5 directory FEM_data/h5_export_v{int(st.v)}
+    #   - else: H5 directory FEM_data/h5_export_V_{int(st.v)}_a_{crack_mm}
     st.fem_mat_prefix = "uvaG2DAllFEM2D"
     st.fem_mat_file = "auto"
     st.fem_reference_source = "h5"   # auto | mat | h5
-    st.fem_h5_dir_prefix = "h5_export_v"
-    st.fem_h5_dir = "FEM_data/h5_export_v500_a_50"
+    st.fem_h5_dir_prefix = "h5_export_V_"
+    st.fem_h5_dir = "auto"
     st.fem_h5_plane_z = 0.0
     st.fem_h5_plane_tol = None
     st.fem_mat_max_crack_mm = 10
@@ -139,9 +139,10 @@ def load_parameters(rGL_value=2):
     # J-integral / DSIF post-processing
     # 1: calculate automatically at the end of each job in main.py
     st.calc_jintegral = 1
-    # Domain parameters (in units of hL)
-    st.jintegral_Rj0 = 1.5
-    st.jintegral_Rj1 = 1.515
+    # Domain parameters (in units of hL).  The 4h..5h annulus is a practical
+    # FEM/analytical compromise for the V=200..1500 sweep and the a=50 mm cases.
+    st.jintegral_Rj0 = 4.0
+    st.jintegral_Rj1 = 5.0
     # Step range control: -1 means auto (start=0, end=stepall)
     st.jintegral_step_start = -1
     st.jintegral_step_end = -1

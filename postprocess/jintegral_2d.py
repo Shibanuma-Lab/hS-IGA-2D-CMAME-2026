@@ -17,6 +17,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 
 import core.state as st
+from core.calnos import analytical_sif
 from utils.fem_struct_h5 import FEMH5Projected2D
 from utils.fem_struct_mat import load_fem_struct_mat
 from utils.shape_functions import GP, GW, shp, Dshp, enlarge
@@ -46,8 +47,8 @@ class JIntegral2D:
         self,
         step_start: int = 0,
         step_end: Optional[int] = None,
-        Rj0: float = 1.5,
-        Rj1: float = 1.515,
+        Rj0: float = 4.0,
+        Rj1: float = 5.0,
         result_dir: Optional[Path] = None,
         use_saved_files: bool = True,
         extend_symmetric: bool = True,
@@ -515,6 +516,7 @@ class JIntegral2D:
             conn = data.elem[eidx]
             xe = data.node[conn, :]           # (4,2)
             ue = data.dis[conn, :]            # (4,2)
+            ve = data.vel[conn, :]            # (4,2)
             ae = data.acce[conn, :]           # (4,2)
             qe = q[conn]                      # (4,)
 
@@ -534,13 +536,19 @@ class JIntegral2D:
 
                 dux_dx = float(dN[0] @ ue[:, 0])
                 duy_dx = float(dN[0] @ ue[:, 1])
+                dvx_dx = float(dN[0] @ ve[:, 0])
+                dvy_dx = float(dN[0] @ ve[:, 1])
                 dq_dx = float(dN[0] @ qe)
                 dq_dy = float(dN[1] @ qe)
+                q_gp = float(N @ qe)
 
+                vx_gp = float(N @ ve[:, 0])
+                vy_gp = float(N @ ve[:, 1])
                 ax_gp = float(N @ ae[:, 0])
                 ay_gp = float(N @ ae[:, 1])
 
                 W = 0.5 * float(np.dot(strain, stress))
+                K = 0.5 * self.rho * (vx_gp * vx_gp + vy_gp * vy_gp)
                 if self.scheme == "mathematica":
                     # Match updated Mathematica notebook:
                     # ((σxx*ux,x + σxy*uy,x - W) q,x + (σxy*ux,x + σyy*uy,x) q,y)
@@ -553,8 +561,19 @@ class JIntegral2D:
                     s1 = W - (sxx * dux_dx + txy * duy_dx)
                     s2 = -(txy * dux_dx + syy * duy_dx)
                     J_static += (s1 * dq_dx + s2 * dq_dy) * det_jac * w
-                # Match 3D reference: dynamic term does not multiply q at GP.
-                J_dynamic += self.rho * (ax_gp * dux_dx + ay_gp * duy_dx) * det_jac * w
+                # Eq. (46) dynamic terms:
+                #   -K q,x + rho * (u_ddot_j u_j,x - u_dot_j u_dot_j,x) q
+                J_dynamic += (
+                    -K * dq_dx
+                    + self.rho
+                    * (
+                        ax_gp * dux_dx
+                        + ay_gp * duy_dx
+                        - vx_gp * dvx_dx
+                        - vy_gp * dvy_dx
+                    )
+                    * q_gp
+                ) * det_jac * w
 
         if self.scheme == "mathematica":
             # Match Mathematica notebook post-scaling exactly.
@@ -641,16 +660,50 @@ class JIntegral2D:
 
         return results
 
+    def run_steps(self, steps: List[int], output_file: Optional[Path] = None) -> List[Dict[str, float]]:
+        """Run J-integral calculation for a non-contiguous list of step numbers."""
+        selected_steps = [int(s) for s in steps]
+        if len(selected_steps) == 0:
+            raise ValueError("steps must contain at least one step number.")
+
+        available = set(self._available_steps())
+        missing = [s for s in selected_steps if s not in available]
+        if missing:
+            raise RuntimeError(f"Requested steps are not available for J-integral calculation: {missing}")
+
+        results = [self.calc_J_single_step(step) for step in selected_steps]
+
+        if output_file is None:
+            out_dir = self.result_dir if self.result_dir is not None else Path.cwd()
+            rgl_val = getattr(st, "rGL", None)
+            if rgl_val is None:
+                rgl_val = getattr(st, "rGLlist", 0)
+            rgl = int(rgl_val)
+            output_file = out_dir / f"J_integral_2D_v{int(self.v)}_rGL{rgl}_selected_steps.csv"
+        else:
+            output_file = Path(output_file)
+            if output_file.parent != Path("."):
+                output_file.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(output_file, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["Step", "J_total", "J_static", "J_dynamic", "K_I"])
+            for row in results:
+                writer.writerow([row["step"], row["J"], row["J_static"], row["J_dynamic"], row["K_I"]])
+
+        return results
+
 
 def calculate_jintegral_2d(
     step_start: int,
     step_end: Optional[int] = None,
-    Rj0: float = 1.5,
-    Rj1: float = 1.515,
+    Rj0: float = 4.0,
+    Rj1: float = 5.0,
     result_dir: Optional[Path] = None,
     output_file: Optional[Path] = None,
     use_saved_files: bool = True,
     extend_symmetric: bool = True,
+    steps: Optional[List[int]] = None,
 ) -> List[Dict[str, float]]:
     """Convenience wrapper for batch J-integral + DSIF calculation."""
     calc = JIntegral2D(
@@ -662,6 +715,8 @@ def calculate_jintegral_2d(
         use_saved_files=use_saved_files,
         extend_symmetric=extend_symmetric,
     )
+    if steps is not None:
+        return calc.run_steps(steps=steps, output_file=output_file)
     return calc.run(output_file=output_file)
 
 
@@ -673,8 +728,8 @@ class JIntegral2DFEMReference(JIntegral2D):
         fem_reference_file: Path,
         step_start: int = 0,
         step_end: Optional[int] = None,
-        Rj0: float = 1.5,
-        Rj1: float = 1.515,
+        Rj0: float = 4.0,
+        Rj1: float = 5.0,
         result_dir: Optional[Path] = None,
         extend_symmetric: bool = False,
     ):
@@ -771,11 +826,12 @@ def calculate_jintegral_2d_fem_reference(
     fem_reference_file: Path,
     step_start: int = 0,
     step_end: Optional[int] = None,
-    Rj0: float = 1.5,
-    Rj1: float = 1.515,
+    Rj0: float = 4.0,
+    Rj1: float = 5.0,
     result_dir: Optional[Path] = None,
     output_file: Optional[Path] = None,
     extend_symmetric: bool = False,
+    steps: Optional[List[int]] = None,
 ) -> List[Dict[str, float]]:
     """Calculate J-integral / DSIF for reference FEM results from MAT or H5."""
     calc = JIntegral2DFEMReference(
@@ -787,6 +843,8 @@ def calculate_jintegral_2d_fem_reference(
         result_dir=result_dir,
         extend_symmetric=extend_symmetric,
     )
+    if steps is not None:
+        return calc.run_steps(steps=steps, output_file=output_file)
     return calc.run(output_file=output_file)
 
 
@@ -794,11 +852,12 @@ def calculate_jintegral_2d_fem_from_mat(
     fem_mat_file: Path,
     step_start: int = 0,
     step_end: Optional[int] = None,
-    Rj0: float = 1.5,
-    Rj1: float = 1.515,
+    Rj0: float = 4.0,
+    Rj1: float = 5.0,
     result_dir: Optional[Path] = None,
     output_file: Optional[Path] = None,
     extend_symmetric: bool = False,
+    steps: Optional[List[int]] = None,
 ) -> List[Dict[str, float]]:
     """Backward-compatible wrapper. Supports MAT path or H5 directory."""
     return calculate_jintegral_2d_fem_reference(
@@ -810,6 +869,7 @@ def calculate_jintegral_2d_fem_from_mat(
         result_dir=result_dir,
         output_file=output_file,
         extend_symmetric=extend_symmetric,
+        steps=steps,
     )
 
 
@@ -823,6 +883,7 @@ def compare_jintegral_results(
     Normalization is defined as:
       ratio = hS_value / FEM_value
     for total/static/dynamic J and K_I.
+    Also includes analytical dynamic SIF per step.
     """
     fem_by_step = {int(r["step"]): r for r in fem_results}
     eps = 1e-14
@@ -836,6 +897,7 @@ def compare_jintegral_results(
         if step not in fem_by_step:
             continue
         fm = fem_by_step[step]
+        k_analytical = float(analytical_sif(step=step))
 
         rows.append(
             {
@@ -852,6 +914,7 @@ def compare_jintegral_results(
                 "K_I_hs": float(hs["K_I"]),
                 "K_I_fem": float(fm["K_I"]),
                 "K_I_norm": _ratio(float(hs["K_I"]), float(fm["K_I"])),
+                "K_I_analytical": k_analytical,
             }
         )
 

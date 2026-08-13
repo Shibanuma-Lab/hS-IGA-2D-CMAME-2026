@@ -6,8 +6,11 @@ For each velocity and sweep group (rGL/aL/lL/HL), this script reads cases
 from results/param_sweep_v{v}_summary.csv and extracts:
 1) 4th column of sigmanos_*.csv
 2) Last-row valid values (NaN removed) of sigmanos_*.csv
-3) K_I_norm_hs_over_fem column from step >= 1 in
+3) K_I_hs / K_I_analytical from step >= 1 in
    J_integral_2D_compare_hs_vs_FEM_*.csv
+
+It also collects the baseline velocity sweep from
+results/velocity_baseline_sweep_summary.csv into one workbook by default.
 
 Default output format is XLSX (3 sheets per workbook). If openpyxl is not
 available, use --output-format csv as fallback for local validation.
@@ -22,9 +25,15 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
+from core.calnos import analytical_sif
 
 
 DEFAULT_GROUPS = ("rGL", "aL", "lL", "HL")
+ANALYTICAL_HL = 0.05e-3
+ANALYTICAL_SIGMA_INF = 1.0e11
+ANALYTICAL_EE = 2.06e11
+ANALYTICAL_NU = 0.3
+ANALYTICAL_RHO = 7800.0
 
 
 def _parse_csv_list(raw: str) -> List[str]:
@@ -65,6 +74,17 @@ def _to_float(value: object) -> Optional[float]:
         return None
 
 
+def _steps_over_hl(length: int, start_step: int = 1) -> List[float]:
+    n = max(0, int(length))
+    s0 = int(start_step)
+    return [float(s0 + i) for i in range(n)]
+
+
+def _crack_length_mm_from_count(length: int, start_step: int = 1) -> List[float]:
+    steps = _steps_over_hl(length, start_step=start_step)
+    return [float(s * ANALYTICAL_HL * 1000.0) for s in steps]
+
+
 def _read_summary(summary_file: Path, groups: Sequence[str]) -> List[Dict[str, str]]:
     if not summary_file.exists():
         raise FileNotFoundError(f"Summary not found: {summary_file}")
@@ -86,6 +106,30 @@ def _read_summary(summary_file: Path, groups: Sequence[str]) -> List[Dict[str, s
             return 10**9
 
     rows.sort(key=_idx_key)
+    return rows
+
+
+def _read_velocity_baseline_summary(summary_file: Path) -> List[Dict[str, str]]:
+    if not summary_file.exists():
+        raise FileNotFoundError(f"Summary not found: {summary_file}")
+
+    rows: List[Dict[str, str]] = []
+    with open(summary_file, newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            status = (row.get("status") or "").strip().lower()
+            if status not in ("done", "skip_existing"):
+                continue
+            rows.append(row)
+
+    def _sort_key(row: Dict[str, str]) -> int:
+        raw = row.get("v", "")
+        try:
+            return int(float(raw))
+        except ValueError:
+            return 10**9
+
+    rows.sort(key=_sort_key)
     return rows
 
 
@@ -133,34 +177,50 @@ def _select_column_key(fieldnames: Sequence[str], target: str) -> Optional[str]:
     return None
 
 
-def _read_ki_norm(j_file: Path) -> List[float]:
+def _read_ki_norm_hs_over_analytical(j_file: Path, velocity: float) -> Tuple[List[float], List[float]]:
+    crack_mm: List[float] = []
     out: List[float] = []
     with open(j_file, newline="") as f:
         reader = csv.DictReader(f)
         if reader.fieldnames is None:
-            return out
+            return crack_mm, out
 
-        ki_key = _select_column_key(reader.fieldnames, "K_I_norm_hs_over_fem")
-        if ki_key is None:
-            raise KeyError(f"Column 'K_I_norm_hs_over_fem' not found in {j_file}")
+        ki_hs_key = _select_column_key(reader.fieldnames, "K_I_hs")
+        if ki_hs_key is None:
+            raise KeyError(f"Column 'K_I_hs' not found in {j_file}")
 
         step_key = _select_column_key(reader.fieldnames, "Step")
+        if step_key is None:
+            raise KeyError(f"Column 'Step' not found in {j_file}")
 
         for row in reader:
-            ki = _to_float(row.get(ki_key))
-            if ki is None or math.isnan(ki):
+            step = _to_float(row.get(step_key))
+            if step is None:
+                continue
+            step_i = int(round(step))
+            if step_i < 1:
                 continue
 
-            if step_key is not None:
-                step = _to_float(row.get(step_key))
-                if step is None:
-                    continue
-                if step < 1.0:
-                    continue
+            ki_hs = _to_float(row.get(ki_hs_key))
+            if ki_hs is None or math.isnan(ki_hs):
+                continue
 
-            out.append(float(ki))
+            ki_analytical = analytical_sif(
+                step=step_i,
+                V=float(velocity),
+                sigma_inf=ANALYTICAL_SIGMA_INF,
+                hL=ANALYTICAL_HL,
+                EE=ANALYTICAL_EE,
+                nu=ANALYTICAL_NU,
+                rho=ANALYTICAL_RHO,
+            )
+            if not np.isfinite(ki_analytical) or abs(float(ki_analytical)) < 1e-14:
+                continue
 
-    return out
+            crack_mm.append(float(step_i * ANALYTICAL_HL * 1000.0))
+            out.append(float(ki_hs / ki_analytical))
+
+    return crack_mm, out
 
 
 def _column_label(row: Dict[str, str]) -> str:
@@ -201,16 +261,78 @@ def _build_group_payload(
             continue
 
         label = _column_label(row)
+        velocity = _to_float(row.get("v"))
+        if velocity is None:
+            print(f"[WARN] Missing velocity in summary row, skip: {row}")
+            continue
+
         try:
             col4, last_valid = _read_sigmanos(sig_file)
-            ki_vals = _read_ki_norm(j_file)
+            ki_crack_mm, ki_vals = _read_ki_norm_hs_over_analytical(j_file, velocity=float(velocity))
         except Exception as exc:
             print(f"[WARN] Failed to parse {case_dir.name}: {type(exc).__name__}: {exc}")
             continue
 
-        sig_col4[label] = col4
+        sig_col4[f"{label} | crack_length_mm"] = _crack_length_mm_from_count(len(col4), start_step=1)
+        sig_col4[f"{label} | sigmanos_col4"] = col4
         sig_last_valid[label] = last_valid
-        ki_norm[label] = ki_vals
+        ki_norm[f"{label} | crack_length_mm"] = ki_crack_mm
+        ki_norm[f"{label} | K_I_hS/K_I_analytical"] = ki_vals
+
+    return {
+        "sigmanos_col4": sig_col4,
+        "sigmanos_last_valid": sig_last_valid,
+        "ki_norm_step1_to_end": ki_norm,
+    }
+
+
+def _build_velocity_baseline_payload(
+    summary_rows: Sequence[Dict[str, str]],
+    results_dir: Path,
+) -> Dict[str, Dict[str, List[float]]]:
+    sig_col4: Dict[str, List[float]] = {}
+    sig_last_valid: Dict[str, List[float]] = {}
+    ki_norm: Dict[str, List[float]] = {}
+
+    for row in summary_rows:
+        folder_name = (row.get("folder") or "").strip()
+        if folder_name == "":
+            print(f"[WARN] Empty folder field in velocity baseline row: {row}")
+            continue
+
+        case_dir = results_dir / folder_name
+        if not case_dir.exists():
+            print(f"[WARN] Case folder missing, skip: {case_dir}")
+            continue
+
+        sig_file = _find_single_file(case_dir, "sigmanos_*.csv")
+        j_file = _find_single_file(case_dir, "J_integral_2D_compare_hs_vs_FEM_*.csv")
+
+        if sig_file is None:
+            print(f"[WARN] sigmanos file missing in {case_dir}")
+            continue
+        if j_file is None:
+            print(f"[WARN] J compare file missing in {case_dir}")
+            continue
+
+        label = f"v={int(float(row.get('v', 0)))}"
+        velocity = _to_float(row.get("v"))
+        if velocity is None:
+            print(f"[WARN] Missing velocity in velocity baseline row, skip: {row}")
+            continue
+
+        try:
+            col4, last_valid = _read_sigmanos(sig_file)
+            ki_crack_mm, ki_vals = _read_ki_norm_hs_over_analytical(j_file, velocity=float(velocity))
+        except Exception as exc:
+            print(f"[WARN] Failed to parse {case_dir.name}: {type(exc).__name__}: {exc}")
+            continue
+
+        sig_col4[f"{label} | crack_length_mm"] = _crack_length_mm_from_count(len(col4), start_step=1)
+        sig_col4[f"{label} | sigmanos_col4"] = col4
+        sig_last_valid[label] = last_valid
+        ki_norm[f"{label} | crack_length_mm"] = ki_crack_mm
+        ki_norm[f"{label} | K_I_hS/K_I_analytical"] = ki_vals
 
     return {
         "sigmanos_col4": sig_col4,
@@ -284,6 +406,11 @@ def main() -> int:
     parser.add_argument("--velocities", type=str, default="500,1000", help="Comma-separated velocities.")
     parser.add_argument("--groups", type=str, default=",".join(DEFAULT_GROUPS), help="Comma-separated groups.")
     parser.add_argument(
+        "--skip-velocity-baseline",
+        action="store_true",
+        help="Do not collect results/velocity_baseline_sweep_summary.csv.",
+    )
+    parser.add_argument(
         "--output-format",
         choices=("xlsx", "csv"),
         default="xlsx",
@@ -331,6 +458,28 @@ def main() -> int:
                 print(f"[OK] {out_file} (columns={ncols})")
             else:
                 out_file = output_dir / f"{base_name}.csv"
+                _write_csv_bundle(out_file, payload)
+                print(f"[OK] {out_file.with_suffix('')}/*.csv (columns={ncols})")
+
+    if not args.skip_velocity_baseline:
+        baseline_summary = results_dir / "velocity_baseline_sweep_summary.csv"
+        try:
+            baseline_rows = _read_velocity_baseline_summary(baseline_summary)
+        except FileNotFoundError as exc:
+            print(f"[WARN] {exc}")
+            baseline_rows = []
+
+        if baseline_rows:
+            payload = _build_velocity_baseline_payload(baseline_rows, results_dir)
+            ncols = len(payload["sigmanos_col4"])
+            if ncols == 0:
+                print("[WARN] No valid velocity-baseline cases; skip output.")
+            elif args.output_format == "xlsx":
+                out_file = output_dir / "velocity_baseline.xlsx"
+                _write_xlsx(out_file, payload)
+                print(f"[OK] {out_file} (columns={ncols})")
+            else:
+                out_file = output_dir / "velocity_baseline.csv"
                 _write_csv_bundle(out_file, payload)
                 print(f"[OK] {out_file.with_suffix('')}/*.csv (columns={ncols})")
 

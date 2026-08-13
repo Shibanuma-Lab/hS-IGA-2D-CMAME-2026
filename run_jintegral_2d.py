@@ -8,7 +8,7 @@ Usage examples:
   python3 run_jintegral_2d.py --result-dir ... --step-start 50 --step-end 80
   python3 run_jintegral_2d.py --scheme mathematica --step-start 0 --step-end 20
   python3 run_jintegral_2d.py --compare-fem --fem-mat FEM_data/uvaG2DAllFEM2D_v_400_a_20.mat
-  python3 run_jintegral_2d.py --result-dir ... --Rj0 1.5 --sweep-rj1 "2.01*Rj0,3.01*Rj0,4.01*Rj0"
+  python3 run_jintegral_2d.py --result-dir ... --Rj0 3.0 --sweep-rj1 "4.0,5.0,6.0"
 """
 
 from __future__ import annotations
@@ -121,6 +121,18 @@ def _parse_sweep_rj1(spec: str, Rj0: float) -> List[float]:
         seen.add(key)
         deduped.append(v)
     return deduped
+
+
+def _parse_steps(spec: str) -> List[int]:
+    steps: List[int] = []
+    for token in spec.split(","):
+        item = token.strip()
+        if item == "":
+            continue
+        steps.append(int(item))
+    if len(steps) == 0:
+        raise ValueError("--steps is empty. Provide comma-separated step numbers.")
+    return steps
 
 
 def _slug_float(x: float) -> str:
@@ -246,6 +258,7 @@ def _write_norm_compare_csv(rows: List[Dict[str, float]], output_file: Path) -> 
                 "K_I_hs",
                 "K_I_fem",
                 "K_I_norm_hs_over_fem",
+                "K_I_analytical",
             ]
         )
         for r in rows:
@@ -264,6 +277,7 @@ def _write_norm_compare_csv(rows: List[Dict[str, float]], output_file: Path) -> 
                     r["K_I_hs"],
                     r["K_I_fem"],
                     r["K_I_norm"],
+                    r["K_I_analytical"],
                 ]
             )
 
@@ -274,6 +288,12 @@ def main() -> None:
     parser.add_argument("--rgl", type=int, default=2, help="rGL value used for default path init")
     parser.add_argument("--step-start", type=int, default=0, help="Start step")
     parser.add_argument("--step-end", type=int, default=None, help="End step (default: auto)")
+    parser.add_argument(
+        "--steps",
+        type=str,
+        default=None,
+        help="Comma-separated non-contiguous step list; overrides --step-start/--step-end.",
+    )
     parser.add_argument(
         "--scheme",
         type=str,
@@ -322,6 +342,7 @@ def main() -> None:
     st.dirname = result_dir
     if args.scheme is not None:
         st.jintegral_scheme = args.scheme
+    selected_steps = None if args.steps is None else _parse_steps(args.steps)
 
     Rj0 = float(st.jintegral_Rj0 if args.Rj0 is None else args.Rj0)
 
@@ -343,12 +364,16 @@ def main() -> None:
             output_file=output,
             use_saved_files=True,
             extend_symmetric=(not args.no_extend),
+            steps=selected_steps,
         )
 
         print(f"[JINT] result_dir: {result_dir}")
         print(f"[JINT] scheme:     {st.jintegral_scheme}")
         print(f"[JINT] output:     {output}")
-        print(f"[JINT] steps:      {len(results)}")
+        if selected_steps is None:
+            print(f"[JINT] steps:      {len(results)}")
+        else:
+            print(f"[JINT] steps:      {','.join(str(s) for s in selected_steps)}")
 
         if args.compare_fem:
             fem_mat = args.fem_mat.resolve()
@@ -369,6 +394,7 @@ def main() -> None:
                 result_dir=result_dir,
                 output_file=fem_output,
                 extend_symmetric=(not args.no_extend),
+                steps=selected_steps,
             )
             comp_rows = compare_jintegral_results(results, fem_results)
             _write_norm_compare_csv(comp_rows, cmp_output)
@@ -407,6 +433,7 @@ def main() -> None:
             output_file=out_case,
             use_saved_files=True,
             extend_symmetric=(not args.no_extend),
+            steps=selected_steps,
         )
         cases.append({"Rj0": Rj0, "Rj1": float(rj1), "rows": rows, "output": out_case})
         print(f"[JINT] contour Rj1={rj1:.8g}: steps={len(rows)}, file={out_case.name}")
