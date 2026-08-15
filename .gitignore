@@ -44,7 +44,7 @@ test*
 reference*
 
 # large data files (if any, e.g., FEM reference data)
-FEM_data/
+FEM_data/*_50
 
 *dat
 *pdf
