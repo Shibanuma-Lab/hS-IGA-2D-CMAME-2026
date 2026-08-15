@@ -2,7 +2,7 @@
 
 This repository contains the Python implementation used for the two-dimensional straight-crack studies associated with the hS-IGA CMAME paper. It couples a NURBS-based global IGA discretisation with a locally refined finite-element discretisation. The code writes displacement and stress fields in VTU format for inspection in ParaView and includes J-integral/DSIF post-processing.
 
-The 2D and 3D implementations are independent research codes: they use different discretisations, solvers, and input data. Their scientific formulation, validation, and numerical results are described in the paper; this README focuses on installing and running the code.
+The detailed method, validation, and numerical results are documented in the paper; this README only records how to install and run the released 2D code.
 
 ## Branches
 
@@ -40,11 +40,11 @@ Before a production run, edit the load_parameters() call in main.py and the valu
 
 Outputs are written under results/; VTU files, when enabled by st.issave, are located in the corresponding paraview/vtu/ directory. The code also writes run diagnostics to logs/.
 
-## Reference data required by the dynamic example
+## FEM reference data
 
-The dynamic implementation interpolates boundary data from a reference FEM solution. These case-specific .mat or HDF5 files are deliberately not stored in Git because the complete collection is large. A run therefore requires the matching data set in FEM_data/; its selected source is controlled by st.fem_reference_source, st.fem_mat_file, and st.fem_h5_dir in config/parameters.py.
+The repository includes compact HDF5 FEM reference fields under FEM_data/ for the supplied dynamic configurations. The default configuration uses the corresponding HDF5 directory automatically; no separate data download is required for the provided examples.
 
-For a public archival release, obtain the accompanying data archive and unpack it into FEM_data/ before running the dynamic example. The archive must be versioned and cited separately from the source repository. Do not assume that the small tracked interpolated_bc_all.csv file replaces the full reference data set.
+Each HDF5 data set contains the mesh together with displacement, velocity, and acceleration fields. To analyse a custom configuration, place its matching FEM reference data under FEM_data/ and set fem_reference_source, fem_mat_file, or fem_h5_dir in config/parameters.py as appropriate. Keep the data directory and its files together when moving or copying a case.
 
 ## Scope and limitations
 
