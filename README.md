@@ -1,6 +1,6 @@
 # hS-IGA: 2D straight-crack implementation
 
-This repository contains the Python implementation used for the two-dimensional straight-crack studies associated with the hS-IGA CMAME paper. It couples a NURBS-based global IGA discretisation with a locally refined finite-element discretisation. The code writes displacement and stress fields in VTU format for inspection in ParaView and includes J-integral/DSIF post-processing.
+This repository contains the Python implementation used for the two-dimensional straight-crack studies associated with the hS-IGA CMAME paper. It couples a B-spline-based global IGA discretisation with a locally refined finite-element discretisation. The code writes displacement and stress fields in VTU format for inspection in ParaView and includes J-integral/DSIF post-processing.
 
 The detailed method, validation, and numerical results are documented in the paper; this README only records how to install and run the released 2D code.
 
