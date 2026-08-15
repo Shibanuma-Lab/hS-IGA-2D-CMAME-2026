@@ -23,8 +23,8 @@ The supplied Pipfile.lock records the Python environment used for this release. 
 
 ## Installation
 
-    git clone https://github.com/Shibanuma-Lab/hS-IGA-2D-straight-crack.git
-    cd hS-IGA-2D-straight-crack
+    git clone https://github.com/Shibanuma-Lab/hS-IGA-2D-CMAME-2026.git
+    cd hS-IGA-2D-CMAME-2026
     python -m pip install pipenv
     pipenv install --dev
 
@@ -32,11 +32,17 @@ Alternatively, create a virtual environment and install the four required packag
 
 ## Running the dynamic code (main)
 
-The entry point is main.py:
+The entry point is main.py. For a quick smoke test, edit config/parameters.py and set:
+
+    st.stepend = 1
+    st.meshonly = 0
+    st.calc_jintegral = 0
+
+Then run:
 
     pipenv run python main.py
 
-Before a production run, edit the load_parameters() call in main.py and the values in config/parameters.py. The usual controls are the global--local mesh-size ratio (rGL_value), crack velocity (st.vlist), local mesh size (st.hL), step range (st.stepini and st.stepend), and analysis mode (st.isdynamiclist). To generate only the mesh and input files, set st.meshonly = 1 in config/parameters.py.
+This processes dynamic steps 0 and 1 using the supplied HDF5 reference data. A successful run writes results/.../paraview/vtu/step_00001.vtu. For a production run, restore the desired step range and post-processing settings, then adjust the global--local mesh-size ratio (rGL_value), crack velocity (st.vlist), local mesh size (st.hL), and analysis mode (st.isdynamiclist) as needed. Set st.meshonly = 1 only when generating mesh and input files.
 
 Outputs are written under results/; VTU files, when enabled by st.issave, are located in the corresponding paraview/vtu/ directory. The code also writes run diagnostics to logs/.
 
