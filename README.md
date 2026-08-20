@@ -15,20 +15,30 @@ Use one branch at a time. The configuration files and output conventions differ 
 
 ## Requirements
 
-- Python 3.10
-- numpy, scipy, h5py, and openpyxl
-- logzero is optional and provides enhanced logging
-
-The supplied Pipfile.lock records the Python environment used for this release. Linux, macOS, and Windows are supported in principle; the examples below use a POSIX shell.
+The automatic installer supports Ubuntu 22.04/24.04, including Ubuntu under WSL 2. It installs Python 3.10, Pipenv, and the locked Python dependencies. Internet access and sudo permission are required on a new machine. Other platforms may be usable, but are not covered by this release script.
 
 ## Installation
 
+On a brand-new Ubuntu or WSL installation, Git is needed to obtain the repository once:
+
+    sudo apt-get update
+    sudo apt-get install -y git
+
+Then clone the repository and run the installer. No prior Python, pip, virtual-environment, or Pipenv setup is needed:
+
     git clone https://github.com/Shibanuma-Lab/hS-IGA-2D-CMAME-2026.git
     cd hS-IGA-2D-CMAME-2026
-    python -m pip install pipenv
-    pipenv install --dev
+    ./setup.sh
 
-Alternatively, create a virtual environment and install the four required packages with pip.
+The script creates the project-local .venv from the locked Python 3.10 environment. It is safe to rerun and installs missing Ubuntu packages automatically. Confirm a completed installation with:
+
+    ./setup.sh --check
+
+If system dependencies are managed by an administrator, use ./setup.sh --skip-system-deps; it stops with a clear error if Python 3.10 or Pipenv is absent.
+
+After setup, run the code directly with:
+
+    pipenv run python main.py
 
 ## Running the dynamic code (main)
 
