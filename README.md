@@ -1,7 +1,7 @@
-# hS-IGA-2D-straight-crack
+# hS-IGA: 2D static straight-crack implementation
 
-**2D Straight Crack Dynamic Propagation Simulation** using S-version Isogeometric Analysis (IGA) coupled with Finite Element Method (FEM).  
-This is a Python + NumPy/SciPy port of the original Mathematica prototype, refactored into a modular structure.
+**2D straight-crack static benchmark implementation** using S-version Isogeometric Analysis (IGA) coupled with the Finite Element Method (FEM).
+This branch contains the static benchmark configuration for the hS-IGA CMAME paper.
 
 ---
 
@@ -94,54 +94,28 @@ hS-IGA-2D-straight-crack/
 
 ## Requirements
 
-- **Python** 3.10 or higher (recommended: 3.10)
-- **Package manager**: `pipenv` (for virtual environment management)
-- **Required packages**: `numpy`, `scipy`
-- **Optional package**: `logzero` (enhanced log formatting; fallback to stdlib logging if not available)
-
----
+The automatic installer supports Ubuntu 22.04/24.04, including Ubuntu under WSL 2. It installs Python 3.10, Pipenv, and the locked Python dependencies. Internet access and sudo permission are required on a new machine. Other platforms may be usable, but are not covered by this release script.
 
 ## Setup
 
-### Option 1: Using pipenv (Recommended)
+On a brand-new Ubuntu or WSL installation, Git is needed to obtain the repository once:
 
-```bash
-# Clone the repository
-git clone <repository-url>
-cd hS-IGA-2D-straight-crack
+    sudo apt-get update
+    sudo apt-get install -y git
 
-# Install pipenv (if not already installed)
-pip install pipenv
+Then clone the static branch and run the installer. No prior Python, pip, virtual-environment, or Pipenv setup is needed:
 
-# Install dependencies and create virtual environment
-pipenv install
+    git clone --branch static https://github.com/Shibanuma-Lab/hS-IGA-2D-CMAME-2026.git
+    cd hS-IGA-2D-CMAME-2026
+    ./setup.sh
 
-# Install development dependencies (including logzero for enhanced logging)
-pipenv install --dev
+The script creates the project-local .venv from the locked Python 3.10 environment and installs missing Ubuntu packages automatically. Confirm a completed installation with:
 
-# Activate the virtual environment
-pipenv shell
-```
+    ./setup.sh --check
 
-### Option 2: Using venv
+After setup, run the code directly with:
 
-```bash
-# Clone the repository
-git clone <repository-url>
-cd hS-IGA-2D-straight-crack
-
-# Create and activate virtual environment
-python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
-
-# Install dependencies
-pip install numpy scipy
-
-# (Optional) Enhanced logging
-pip install logzero
-```
-
-Ensure that FEM reference data (`.csv` / `.dat` / `.mat` files) are placed in the `FEM_data/` directory.
+    pipenv run python main.py
 
 ---
 
